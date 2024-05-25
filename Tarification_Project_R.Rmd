@@ -672,59 +672,82 @@ formula_model <- ClaimNb ~ -1 + Exposure + CarAge + Gas + Density + DriverAge +
 
 L'intercept (ie constante) dans un modèle GLM représente la valeur attendue de la variable dépendante lorsque toutes les variables indépendantes sont égales à zéro. Dans notre cas, on souhaite comparer les effets de différents groupes de variables, on élimine donc la constante avec le -1.
 
-```{r}
-# Modele de Gamma à ne pas utiliser comme le nombre de sinistre peut être = 0, or gamma défini pour x>0
-#glm_gamma <- glm(formula_model, family = Gamma(link="inverse"), data = train_freq)
-#summary(glm_gamma)
-```
+
+========== Modele de Gamma ========== 
+
+Nous ne définissions pas un modèle Gamma pour le nombre de sinistres car le nombre de sinistre peut être égal à 0, or gamma est défini pour x>0
+
+========== Modele Gaussien ========== 
+
+Nous ne faisons pas le modèle Gaussien non plus car il ne nous semble pas pertinent dans le cadre d'un comptage de nombre de sinistres, une distribution gaussienne étant davantage adaptée lorsque que les variables sont continues et symétrique autour de la moyenne. Or, dans les données de la fréquence de sinistres, nous n'avons pas cette symétrie en plus d'une forte variance.
+
+========== Modele Poisson ========== 
 
 La famille de Poisson est utilisée pour modéliser des variables aléatoires discrètes qui prennent des valeurs entières positives. Elle est souvent utilisée pour modéliser des comptages d'évènements rares, tels que le nombre de sinistres.
 
 ```{r}
-# Modele de Poisson
+# Modele initial de la Poisson
 glm_poisson <- glm(formula_model,family = poisson(link="log"), data = train_freq)
 summary(glm_poisson)
 ```
 A partir de ces informations, on voit que la région ainsi que la puissance ne sont pas très significatives on les retire. Concernant Brand_1, nous nous disons qu'il n'est pas pertinent de garder Brand_2 qui est significatif et retirer Brand_1 qui est important pour nos données.
 
 ```{r}
+#Modele poisson une fois les variables non significatives retirees
 glm_poisson <- glm(
   ClaimNb ~ -1 + Exposure + CarAge + Gas + DriverAge + Density + Brand_1 + Brand_2,
   family = poisson(link = "log"),data = train_freq)
 summary(glm_poisson)
 ```
+========== Modele Poisson surdisperse  ========== 
 
-La famille de Poisson quasi est une extension de la famille de Poisson qui permet de prendre en compte la surdispersion des données. La surdispersion se produit lorsque la variance des données est supérieure à la moyenne, ce qui peut rendre le modèle de Poisson inadapté.
+La famille de Poisson surdisperse est une extension de la famille de Poisson qui permet de prendre en compte la surdispersion des données. La surdispersion se produit lorsque la variance des données est supérieure à la moyenne, ce qui peut rendre le modèle de Poisson inadapté.
 
 ```{r}
-# Modele de Poisson surdispersée 
+# Modele initial Poisson surdispersée 
 glm_quasipoisson <- glm(formula_model,family = quasipoisson(link="log"), data = train_freq)
 summary(glm_quasipoisson)
 ```
 Comme précédemment, nous gardons l'ensemble des variables quantititatives et nous retirons les variables quantitatives hors celles de la marque (1 & 2)
 
 ```{r}
+#Modele de poisson surdisperse apres avoir retire les variables non significatives
 glm_quasipoisson <- glm(
   ClaimNb ~ -1 + Exposure + CarAge + Gas + DriverAge + 
     Density + Brand_1 + Brand_2, family = quasipoisson(link = "log"),
   data = train_freq)
 summary(glm_quasipoisson)
 ```
+========== Modele négatif binomial  ========== 
 
 La famille de négatif binomial est une autre extension de la famille de Poisson qui permet de prendre en compte la surdispersion des données. Elle est souvent utilisée pour modéliser des comptages d'événements qui présentent une forte variabilité. 
 
 ```{r}
-# Modèle de la Binomiale négative
-modele_bin_neg <- glm.nb(formula_model, data = train_freq)
-summary(modele_bin_neg)
+# Modèle initial de la Binomiale négative
+glm_bin_neg <- glm.nb(formula_model, data = train_freq)
+summary(glm_bin_neg)
 ```
 Nous avons la même analyse que précédemment
 
 ```{r}
-modele_bin_neg <- glm.nb(
+# Modèle de la Binomiale négative après avoir retiré les variables non significatives
+glm_bin_neg <- glm.nb(
   ClaimNb ~ -1 + Exposure + CarAge + Gas + DriverAge + 
     Density +Brand_1 + Brand_2 + Brand_3,data = train_freq)
-summary(modele_bin_neg)
+summary(glm_bin_neg)
+```
+Déterminons maintenant le meilleur modèle au sens du critère AIC
+
+```{r}
+# Extraire les AIC des modèles, on retire le modele poisson surdisperse car etant un quasi modele, il n'a pas de vraisemblance, cependant par simplicité nous décidons de ne pas évaluer le quasi AIC
+
+# Créer un data frame avec les noms de modèle et leur AIC associé
+AIC_data <- data.frame(Modele = c("Modele Poisson", "Modele Binomial Negatif"),
+                       AIC = c(AIC(glm_poisson), AIC(glm_bin_neg)))
+
+# Afficher le nom du modèle qui minimise l'AIC avec sa valeur
+cat("Le modèle qui minimise l'AIC est le ", AIC_data$Modele[which.min(AIC_data$AIC)], "avec une valeur d'AIC de", min(AIC_data$AIC))
+
 ```
 
-
+On retient ainsi le modele binomial negatif selon ce critère
