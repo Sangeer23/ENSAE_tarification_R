@@ -1,0 +1,690 @@
+---
+title: "Projet Tarification"
+author: "Eunice KOFFI, Léa TENAILLE, Sangeerthan KUNASEELAN, Micelle-Ange SOH"
+date: "2024-05-02"
+output: pdf_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+# Installation des packages
+
+```{r, eval=FALSE, echo=FALSE, results='hide'}
+packages <- c("future", "promises", "xts", "sp", "zoo", "Hmisc", "plyr", "dplyr", "tidyr", "corrplot","ggplot2", "lubridate", "car", "MASS", "glmnet", "randomForest",
+"caret", "data.table", "stringr", "skimr", "dunn.test", "DT", "shiny", "rlang", "tibble")
+
+# Fonction pour installer les packages s'ils ne sont pas déjà installés
+install_if_missing <- function(package) {
+  if (!require(package, character.only = TRUE)) {
+    install.packages(package, repos = "http://cran.rstudio.com/")
+    library(package, character.only = TRUE)
+  }
+}
+
+# Appliquer la fonction à chaque package requis
+sapply(packages, install_if_missing)
+
+# Installer spécifiquement le package CASdatasets depuis une source spécifique si nécessaire
+if (!require("CASdatasets", character.only = TRUE)) {
+  install.packages("CASdatasets", repos = "http://dutangc.perso.math.cnrs.fr/RRepository/pub/", type = "source")
+}
+
+library(CASdatasets)
+```
+
+# Chargement de la base de données 
+```{r}
+# Charger les données
+data("freMTPLfreq", package = "CASdatasets")
+data("freMTPLsev" , package = "CASdatasets")
+```
+
+# Partie I : Exploration des données
+## I.1 : Statistiques descriptives
+
+```{r}
+skim(freMTPLfreq)
+```
+
+```{r}
+skim(freMTPLsev)
+```
+
+## I.2 : Analyse univariée
+
+### I.2.1 : Variables numériques
+
+
+```{r}
+# Age 
+barplot(table(freMTPLfreq$DriverAge), main="Repartition de la population par âge de notre portefeuille", xlab="Age", ylab="Effectif", col="#2ecc71")
+
+```
+Commentaires : 
+
+
+```{r}
+# Exposition
+barplot(table(freMTPLfreq$Exposure), main="Repartition de l'exposition du portefeuille", xlab="Exposition", ylab="valeur", col="#2ecc71")
+```
+Commentaires : 
+
+
+```{r}
+# Age de la voiture
+barplot(table(freMTPLfreq$CarAge), main="Ancienneté du parc automobile assuré", xlab="Age de la voiture", ylab="valeur", col="#2ecc71")
+```
+Commentaires :
+
+
+```{r}
+# Densité
+barplot(table(freMTPLfreq$Density), main="Densité sur le portefeuille", xlab="Densité", ylab="valeur", col="#2ecc71")
+```
+Commentaires : 
+
+```{r}
+# Nombre de sinistre
+barplot(table(freMTPLfreq$ClaimNb), main="Nombre de sinistres", xlab="Densité", ylab="valeur", col="#2ecc71")
+```
+Commentaires :
+
+```{r}
+# Montant des sinsitres
+barplot(table(freMTPLsev$ClaimAmount), main="Densité sur le portefeuille", xlab="Densité", ylab="valeur", col="#2ecc71")
+```
+Commentaires :
+
+### I.2.1 : Variables catégorielles
+
+```{r}
+create_pie_chart <- function(data, variable_name) {
+  # Préparer une expression symbolique du nom de la variable pour l'utiliser dans ggplot
+  var_expr <- sym(variable_name)
+  
+  # Création du graphique
+  pie_chart <- ggplot(data, aes(x = "", fill = factor(!!var_expr))) + 
+    geom_bar(width = 1, stat = "count") +
+    coord_polar(theta = "y") +
+    labs(title = paste("Répartition des", variable_name), x = NULL, y = NULL, fill = variable_name) +
+    theme_void()
+  
+  # Retourner le graphique
+  return(pie_chart)
+}
+```
+
+
+```{r}
+create_pie_chart(freMTPLfreq, "Brand")
+```
+Commentaires : 
+
+
+```{r}
+create_pie_chart(freMTPLfreq, "Power")
+
+```
+Commentaires : 
+
+
+```{r}
+create_pie_chart(freMTPLfreq, "Gas")
+
+```
+Commentaires : 
+
+
+```{r}
+create_pie_chart(freMTPLfreq, "Region")
+```
+Commentaires : 
+
+## I.3 : Analyse multivariée
+
+
+```{r}
+# Jointure des données
+dim(freMTPLfreq)
+dim(freMTPLsev)
+
+sum(duplicated(freMTPLsev["PolicyID"]))
+
+length(unique(freMTPLsev$PolicyID))
+length(unique(freMTPLfreq$PolicyID))
+
+# Type de la clé 
+freMTPLfreq$PolicyID <- as.character(freMTPLfreq$PolicyID)
+freMTPLsev$PolicyID  <- as.character(freMTPLsev$PolicyID)
+
+# Effectuer une jointure
+base_data <- left_join(freMTPLfreq, freMTPLsev, by = "PolicyID")
+dim(base_data)
+```
+```{r}
+
+# Check if there are no incoherences in the code
+
+# Replace NA values with 0 for numerical calculations
+base_data$ClaimAmount[is.na(base_data$ClaimAmount)] <- 0
+
+# Aggregate data and perform calculations
+aggregated_base_data <- base_data %>%
+  group_by(PolicyID) %>%
+  summarise(
+    count_policyID = n(),
+    mean_claim_number = mean(ClaimNb, na.rm = TRUE),
+    sum_claim_amount = sum(ClaimAmount, na.rm = TRUE)
+  ) %>%
+  mutate(
+    check_policyID_mean_claim = count_policyID >= mean_claim_number
+  ) %>%
+  filter(check_policyID_mean_claim == FALSE)
+
+# Print the filtered data frame
+print(aggregated_base_data)
+```
+
+Commentaires : 
+
+### I.3.1 : Corrélation entre variables numériques
+
+```{r}
+# Calculer la matrice de corrélation pour les colonnes numériques
+correlation_matrix <- freMTPLfreq %>% 
+  select_if(is.numeric) %>% 
+  cor()
+
+# Afficher la matrice de corrélation
+print(correlation_matrix)
+```
+Commentaires : 
+
+### I.3.2 : Corrélation entre variables numériques et catégorielles
+
+```{r}
+perform_kruskal <- function(data, numeric_vars, categorical_vars) {
+  # Charger les bibliothèques nécessaires
+  library(dplyr)
+  
+  # Préparer le dataframe pour les résultats
+  results <- data.frame(
+    Numeric_Variable = character(),
+    Categorical_Variable = character(),
+    Kruskal_Statistic = numeric(),
+    P_Value = numeric(),
+    stringsAsFactors = FALSE
+  )
+  
+  # Boucle pour chaque combinaison de variable numérique et catégorielle
+  for (num_var in numeric_vars) {
+    for (cat_var in categorical_vars) {
+      # Assurer que la variable catégorielle est de type facteur
+      data[[cat_var]] <- as.factor(data[[cat_var]])
+      
+      # Exécuter le test de Kruskal-Wallis
+      test_result <- kruskal.test(reformulate(cat_var, response = num_var), data = data)
+      
+      # Ajouter le résultat au dataframe de résultats
+      results <- rbind(results, data.frame(
+        Numeric_Variable = num_var,
+        Categorical_Variable = cat_var,
+        Kruskal_Statistic = test_result$statistic,
+        P_Value = test_result$p.value
+      ))
+    }
+  }
+  
+  # Création d'une matrice de corrélation
+  results$Significance <- ifelse(results$P_Value < 0.05, "Significant", "Not Significant")
+  
+  # Créer une matrice visuelle des résultats
+  results_matrix <- results %>%
+    pivot_wider(names_from = Categorical_Variable, values_from = Significance)
+  
+  return(results_matrix)
+}
+
+```
+Commentaires : 
+
+
+```{r}
+# Supposons que 'num_vars' et 'cat_vars' sont vos listes de noms de variables
+num_vars <- c("Exposure", "CarAge", "DriverAge", "Density", "ClaimAmount", "ClaimNb")  # Exemple de variables numériques
+cat_vars <- c("Power", "Brand", "Gas", "Region")  # Exemple de variables catégorielles
+
+# Appliquer la fonction
+results_matrix <- perform_kruskal(base_data, num_vars, cat_vars)
+print(results_matrix)
+
+```
+Commentaires : 
+
+### I.3.3 : Corrélation entre variables catégorielles
+
+```{r}
+cramers_v <- function(chi2, n, r, k) {
+  # chi2 : Statistique Chi-deux
+  # n : Nombre total d'observations
+  # r : Nombre de lignes dans la table de contingence
+  # k : Nombre de colonnes dans la table de contingence
+  v <- sqrt((chi2 / n) / (min(r - 1, k - 1)))
+  return(v)
+}
+
+```
+
+
+```{r}
+chi2_cramers_v_matrix <- function(data, categorical_vars) {
+  library(dplyr)
+  n <- nrow(data)
+  results <- matrix(nrow = length(categorical_vars), ncol = length(categorical_vars), dimnames = list(categorical_vars, categorical_vars))
+  
+  for (i in 1:length(categorical_vars)) {
+    for (j in i:length(categorical_vars)) {
+      if (i == j) {
+        results[i, j] <- 1
+      } else {
+        # Calcul du test du Chi-deux
+        tbl <- table(data[[categorical_vars[i]]], data[[categorical_vars[j]]])
+        chi2_test <- chisq.test(tbl)
+        
+        # Calcul du V de Cramér
+        v <- cramers_v(chi2_test$statistic, n, nrow(tbl), ncol(tbl))
+        results[i, j] <- v
+        results[j, i] <- v  # Matrice symétrique
+      }
+    }
+  }
+  return(as.data.frame(results))
+}
+
+```
+
+
+```{r}
+# Application de la fonction
+results_matrix <- chi2_cramers_v_matrix(base_data, cat_vars)
+print(results_matrix)
+
+```
+Commentaires :
+
+
+On regarde le nombre de personnes ayant eu au moins un sinistre par âge
+```{r}
+barplot(table(freMTPLfreq[freMTPLfreq$ClaimNb!=0,]$DriverAge),
+        main="Repartition de la population par age en fonction du nombre de sinistres",
+        xlab="Age",
+        ylab="Nb de sinistres",
+        col="#e67e22")
+```
+
+On regarde le nombre de sinistres par age en prenant en compte le nombre de polices dans cette classe d'âge
+
+```{r}
+prop_sin_age = aggregate(x = freMTPLfreq$ClaimNb,
+                         by = list(freMTPLfreq$DriverAge),
+                         FUN = sum)
+names(prop_sin_age)=c("DriverAge", "ClaimNb")
+nbr_total_par_age = count(freMTPLfreq, "DriverAge")
+
+```
+
+```{r}
+# Selon les libairies le plot peut etre different : Soit faire cette commande 
+# prop_sin_age$proportion = 100*prop_sin_age$ClaimNb/nbr_total_par_age$freq
+# Soit celle la : 
+prop_sin_age$proportion = 100*prop_sin_age$ClaimNb/nbr_total_par_age$n
+
+plot(prop_sin_age$DriverAge,prop_sin_age$proportion,xlab = "Age",ylab = "Proportion",
+     main="Proportion sinistres par nombre de polices par age",col="black")
+
+```
+
+Commentaires : Pour les personnes tres agees peu de polices par age donc peu representatif
+pour les tres jeunes : la population est aussi faible mais quand meme representative
+
+```{r}
+# Zoom sur la bosse des accidents : 
+plot(prop_sin_age[prop_sin_age$DriverAge<=35,]$DriverAge,
+     prop_sin_age[prop_sin_age$DriverAge<=35,]$proportion,xlab = "Age",ylab = "Proportion",
+     main="Zoom sur la bosse des accidents",col="#e74c3c", type="p")
+
+```
+
+On remarque une "bosse" pour les plus jeunes âges. Une proportion élevée qui diminue pour s'applatir autour de 25 ans. 
+
+
+# Partie II : Préparation des données
+
+## II.1 Transformation des variables 
+## II.2 Regroupement de modalités
+```{r}
+skim(base_data)
+```
+
+# Partie III : Modélisation
+## III.1 
+
+On cherche dans un premier temps à regrouper les variables qualitatives entre elles pour avoir moins de modalités par la suite dans notre régression
+
+Commençons par les régions
+```{r}
+
+## Calculate the required statistics by region
+
+by_region <- by(base_data, base_data$Region, function(x) {
+  sum_claim <- round(sum(x$ClaimNb), 2)
+  mean_exposure <- round(mean(x$Exposure), 2)
+  mean_car_age <- round(mean(x$CarAge), 2)
+  mean_driver_age <- round(mean(x$DriverAge), 2)
+  count_policy_id <- length(x$PolicyID)
+  return(c(count_policy_id, sum_claim, mean_exposure, mean_car_age, mean_driver_age))
+})
+
+# Transform the results into a dataframe
+result_region <- do.call(rbind, by_region)
+result_region <- as.data.frame(result_region)
+#rownames(result_df) <- NULL
+colnames(result_region) <- c("Count_Policy_ID", "Mean_Claim", "Mean_Exposure", "Mean_Car_Age", "Mean_Driver_Age")
+
+# Display the dataframe
+print(result_region)
+
+```
+On recherche ici à constituer des groupes de régions afin de les analyser plus facilement par la suite avec comme critères le nombre de police d'assurance, le montant de réclamation moyen, l'exposition et dans une moindre mesure, l'âge des voitures
+
+- Region_1 : Centre parce que c'est une région avec de grands nombres de polices (160k) et de hauts nombre moyens de réclamations (7k)
+
+- Region_2 : Ile de France, Bretagne & Pays de la Loire qui sont des régions avec des nombres modérés de polices (entre 35k et 70k) et de nombres moyens de réclamations élevés (entre 1.5k et 3k)
+
+- Region_3 : Aquitaine, Nord Pas de Calais & Poitou Charente qui sont régions avec des nombres modérés de polices (entre 15k et 35k) et des nombres moyens de réclamations bas à modérés (entre 0.5k et 1.5k)
+
+- Region_4 : Basse Normandie, Haute Normandie  Limousin qui sont des régions avec de petits nombres de polices(entre 4k et 15k) et des nombres moyens de réclamations bas (entre 0.2k et 0.5k)
+
+Voyons ensuite pour les marques
+```{r}
+
+## Calculate the required statistics by brand
+
+by_brand <- by(base_data, base_data$Brand, function(x) {
+  sum_claim <- round(sum(x$ClaimNb), 2)
+  mean_exposure <- round(mean(x$Exposure), 2)
+  mean_car_age <- round(mean(x$CarAge), 2)
+  mean_driver_age <- round(mean(x$DriverAge), 2)
+  count_policy_id <- length(x$PolicyID)
+  return(c(count_policy_id, sum_claim, mean_exposure, mean_car_age, mean_driver_age))
+})
+
+# Transform the results into a dataframe
+result_brand <- do.call(rbind, by_brand)
+result_brand <- as.data.frame(result_brand)
+#rownames(result_df) <- NULL
+colnames(result_brand) <- c("Count_Policy_ID", "Mean_Claim", "Mean_Exposure", "Mean_Car_Age", "Mean_Driver_Age")
+
+# Display the dataframe
+print(result_brand)
+
+```
+
+- Brand_1 : Renault, Nissan or Citroen parce que c'est la marque avec de grands nombres de polices (22k) et de hauts nombre moyens de réclamations (10k)
+
+- Brand_2 : Japanese (except Nissan) or Korean, Opel, General Motors or Ford & Volkswagen, Audi, Skoda or Seat qui sont des marques avec des nombres modérés de polices (entre 30k et 80k) et de nombres moyens de réclamations élevés (entre 1.5k et 2.5k)
+
+- Brand_3 : Fiat, Mercedes, Chrysler or BMW & other qui sont marques avec des nombres plus faible de polices (entre 9.5k et 20k) et des nombres moyens de réclamations bas (entre 0.4k et 0.9k)
+
+Voyons enfin pour la puissance de la voiture
+```{r}
+
+## Calculate the required statistics by power
+
+by_power <- by(base_data, base_data$Power, function(x) {
+  sum_claim <- round(sum(x$ClaimNb), 2)
+  mean_exposure <- round(mean(x$Exposure), 2)
+  mean_car_age <- round(mean(x$CarAge), 2)
+  mean_driver_age <- round(mean(x$DriverAge), 2)
+  count_policy_id <- length(x$PolicyID)
+  return(c(count_policy_id, sum_claim, mean_exposure, mean_car_age, mean_driver_age))
+})
+
+# Transform the results into a dataframe
+result_power <- do.call(rbind, by_power)
+result_power <- as.data.frame(result_power)
+#rownames(result_df) <- NULL
+colnames(result_power) <- c("Count_Policy_ID", "Mean_Claim", "Mean_Exposure", "Mean_Car_Age", "Mean_Driver_Age")
+
+# Display the dataframe
+print(result_power)
+
+```
+
+- Power_1 : d,e,f & g parce que sont les catégories avec de grands nombres de polices (entre 65k et 100k) et de hauts nombre moyens de réclamations (entre 25k et 45k)
+
+- Power_2 : h,i,j qui sont des marques avec des nombres modérés de polices (entre 15k et 30k) et de nombres moyens de réclamations élevés (entre 0.5k et 1.5k)
+
+- Power_3 : k, l,m, n & o qui sont marques avec des nombres plus faible de polices (entre 1k et 10k) et des nombres moyens de réclamations bas (entre 0k et 0.5k)
+
+
+
+Appliquons les changements
+
+```{r}
+# Les régions
+
+# Remplacement des valeurs dans la colonne Région
+base_data <- base_data %>%
+  mutate(Region = case_when(
+    Region == "Aquitaine" ~ "Region_3",
+    Region == "Basse-Normandie" ~ "Region_4",
+    Region == "Bretagne" ~ "Region_2",
+    Region == "Centre" ~ "Region_1",
+    Region == "Haute-Normandie" ~ "Region_4",
+    Region == "Ile-de-France" ~ "Region_2",
+    Region == "Limousin" ~ "Region_4",
+    Region == "Nord-Pas-de-Calais" ~ "Region_3",
+    Region == "Pays-de-la-Loire" ~ "Region_2", 
+    Region == "Poitou-Charentes" ~ "Region_3", 
+    TRUE ~ Region  # Garde les valeurs qui ne correspondent à aucune condition
+  ))
+
+# Remplacement des valeurs dans la colonne Brand
+base_data <- base_data %>%
+  mutate(Brand = case_when(
+    Brand == "Fiat" ~ "Brand_3",
+    Brand == "Japanese (except Nissan) or Korean" ~ "Brand_2",
+    Brand == "Mercedes, Chrysler or BMW" ~ "Brand_3",
+    Brand == "Opel, General Motors or Ford" ~ "Brand_2",
+    Brand == "Renault, Nissan or Citroen" ~ "Brand_1",
+    Brand == "Volkswagen, Audi, Skoda or Seat" ~ "Brand_2",
+    Brand == "other" ~ "Brand_3",
+    TRUE ~ Brand  # Garde les valeurs qui ne correspondent à aucune condition
+  ))
+
+# Remplacement des valeurs dans la colonne Power
+base_data <- base_data %>%
+  mutate(Power = case_when(
+    Power == "d" ~ "Power_1",
+    Power == "e" ~ "Power_1",
+    Power == "f" ~ "Power_1",
+    Power == "g" ~ "Power_1",
+    Power == "h" ~ "Power_2",
+    Power == "i" ~ "Power_2",
+    Power == "j" ~ "Power_2",
+    Power == "k" ~ "Power_3",
+    Power == "l" ~ "Power_3",
+    Power == "m" ~ "Power_3",
+    Power == "n" ~ "Power_3",
+    Power == "o" ~ "Power_3",
+    TRUE ~ Power  # Garde les valeurs qui ne correspondent à aucune condition
+  ))
+
+```
+
+Passons à la modélisation
+
+```{r}
+#On sépare le jeu de données en set d'entrainement et de test
+set.seed(123)
+indexes <- sample(1:nrow(base_data), size=0.75*nrow(base_data))
+train_freq <- base_data[indexes,]
+test_freq <- base_data[-indexes,]
+```
+
+
+# CAS SANS CONSTANTE / INTERCEPTION
+
+```{r}
+#Pour éviter de réécrire toujours les mêmes variables, on les met dans une variable distincte
+formula_model <- ClaimNb ~ Exposure + CarAge + Gas + DriverAge + Density +
+                  Power_1 + Power_2 + Power_3 +
+                  Brand_1 + Brand_2 + Brand_3 + 
+                  Region_1 + Region_2 + Region_3 + Region_4
+
+#L'intercept (ie constante) dans un modèle GLM représente la valeur attendue de la variable dépendante lorsque toutes les variables indépendantes sont égales à zéro. Dans notre cas, on souhaite comparer les effets de différents groupes de variables, on élimite donc la constante avec le -1
+
+```
+
+```{r}
+# Modele de Gamma à ne pas utiliser comme le nombre de sinistre peut être = 0, or gamma défini pour x>0
+#glm_gamma <- glm(formula_model, family = Gamma(link="inverse"), data = train_freq)
+#summary(glm_gamma)
+```
+
+```{r}
+# Modele de Poisson
+# La famille de Poisson est utilisée pour modéliser des variables aléatoires discrètes qui prennent des valeurs entières positives. Elle est souvent utilisée pour modéliser des comptages d'événements rares, tels que le nombre de sinistres.
+glm_poisson <- glm(ClaimNb ~ Exposure + CarAge + Gas + DriverAge + Density + Power,family = poisson(link="log"), data = train_freq)
+summary(glm_poisson)
+
+```
+
+A partir de ces informations, on voit que la densité n'est pas très significative, on la retire
+
+```{r}
+glm_poisson <- glm(
+  ClaimNb ~ -1 + Exposure + CarAge + Gas + DriverAge +
+    Power_1 + Power_2 + Power_3 +
+    Brand_1 + Brand_2 + Brand_3 +
+    Region_1 + Region_2 + Region_3 + Region_4,
+  family = poisson(link = "log"),
+  data = train_freq
+)
+summary(glm_poisson)
+
+```
+
+```{r}
+# Modele de Poisson surdispersée 
+# La famille de Poisson quasi est une extension de la famille de Poisson qui permet de prendre en compte la surdispersion des données. La surdispersion se produit lorsque la variance des données est supérieure à la moyenne, ce qui peut rendre le modèle de Poisson inadapté.
+glm_quasipoisson <- glm(formula_model,family = quasipoisson(link="log"), data = train_freq)
+summary(glm_quasipoisson)
+```
+Encore une fois, la densité n'est pas significative
+
+```{r}
+glm_quasipoisson <- glm(
+  ClaimNb ~ -1 + Exposure + CarAge + Gas + DriverAge +
+    Power_1 + Power_2 + Power_3 + Brand_1 + Brand_2 + Brand_3 +
+    Region_1 + Region_2 + Region_3 + Region_4,
+  family = quasipoisson(link = "log"),
+  data = train_freq
+)
+summary(glm_quasipoisson)
+```
+
+```{r}
+# Modèle de la Binomiale négative
+# La famille de négatif binomial est une autre extension de la famille de Poisson qui permet de prendre en compte la surdispersion des données. Elle est souvent utilisée pour modéliser des comptages d'événements qui présentent une forte variabilité. 
+
+modele_bin_neg <- glm.nb(formula_model, data = train_freq)
+summary(modele_bin_neg)
+```
+Encore une fois, la densité n'est pas significative
+
+```{r}
+modele_bin_neg <- glm.nb(
+  ClaimNb ~ -1 + Exposure + CarAge + Gas + DriverAge +
+    Power_1 + Power_2 + Power_3 + Brand_1 + Brand_2 + Brand_3 +
+    Region_1 + Region_2 + Region_3 + Region_4,
+  data = train_freq
+)
+summary(modele_bin_neg)
+```
+# CAS AVEC CONSTANTE / INTERCEPTION
+
+```{r}
+#Pour éviter de réécrire toujours les mêmes variables, on les met dans une variable distincte
+formula_model <- ClaimNb ~ Exposure + CarAge + Gas + DriverAge + Density +
+                  Power_1 + Power_2 + Power_3 +
+                  Brand_1 + Brand_2 + Brand_3 + 
+                  Region_1 + Region_2 + Region_3 + Region_4
+```
+
+```{r}
+# Modele de Gamma à ne pas utiliser comme le nombre de sinistre peut être = 0, or gamma défini pour x>0
+#glm_gamma <- glm(formula_model, family = Gamma(link="inverse"), data = train_freq)
+#summary(glm_gamma)
+```
+
+```{r}
+# Modele de Poisson
+# La famille de Poisson est utilisée pour modéliser des variables aléatoires discrètes qui prennent des valeurs entières positives. Elle est souvent utilisée pour modéliser des comptages d'événements rares, tels que le nombre de sinistres.
+glm_poisson <- glm(formula_model,family = poisson(link="log"), data = train_freq)
+summary(glm_poisson)
+```
+
+A partir de ces informations, on retire Region, 
+
+```{r}
+glm_poisson <- glm(
+  ClaimNb ~ Exposure + CarAge + Gas + DriverAge +
+    Power_1 + Brand_2 + Region_4,
+  family = poisson(link = "log"),
+  data = train_freq
+)
+summary(glm_poisson)
+
+```
+
+```{r}
+# Modele de Poisson surdispersée 
+# La famille de Poisson quasi est une extension de la famille de Poisson qui permet de prendre en compte la surdispersion des données. La surdispersion se produit lorsque la variance des données est supérieure à la moyenne, ce qui peut rendre le modèle de Poisson inadapté.
+glm_quasipoisson <- glm(formula_model,family = quasipoisson(link="log"), data = train_freq)
+summary(glm_quasipoisson)
+```
+Encore une fois, lon garde power 1, brand 2 et region_4
+
+```{r}
+glm_quasipoisson <- glm(
+  ClaimNb ~ Exposure + CarAge + Gas + DriverAge +
+    Power_1 + Brand_2 + Region_4,
+  family = quasipoisson(link = "log"),
+  data = train_freq
+)
+summary(glm_quasipoisson)
+```
+
+```{r}
+# Modèle de la Binomiale négative
+# La famille de négatif binomial est une autre extension de la famille de Poisson qui permet de prendre en compte la surdispersion des données. Elle est souvent utilisée pour modéliser des comptages d'événements qui présentent une forte variabilité. 
+
+modele_bin_neg <- glm.nb(formula_model, data = train_freq)
+summary(modele_bin_neg)
+```
+Encore une fois, lon garde power 1, brand 2 et region_4
+
+```{r}
+modele_bin_neg <- glm.nb(
+  ClaimNb ~ Exposure + CarAge + Gas + DriverAge +
+    Power_1 + Brand_2 + Region_4,
+  data = train_freq
+)
+summary(modele_bin_neg)
+```
+
