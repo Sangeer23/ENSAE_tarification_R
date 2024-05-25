@@ -627,23 +627,20 @@ set.seed(123)
 indexes <- createDataPartition(base_data_onehot[["ClaimNb"]], p=0.75, list=FALSE)
 
 # Créer les ensembles d'entraînement et de test
-train_freq <- base_data_onehot[indexes,]
-test_freq <- base_data_onehot[-indexes,]
-
-train_cout <- base_data_onehot[indexes,]
-test_cout <- base_data[-indexes,]
+train <- base_data_onehot[indexes,]
+test <- base_data_onehot[-indexes,]
 
 ```
 
 ```{r}
-# Calculer les fréquences des modalités de ClaimNb dans train_freq
-train_table <- table(train_freq$ClaimNb)
+# Calculer les fréquences des modalités de ClaimNb dans train
+train_table <- table(train$ClaimNb)
 train_percent <- prop.table(train_table) * 100
 cat("Répartition des modalités dans la table d'entraînement:\n")
 train_percent
 
-# Calculer les fréquences des modalités de ClaimNb dans test_freq
-test_table <- table(test_freq$ClaimNb)
+# Calculer les fréquences des modalités de ClaimNb dans test
+test_table <- table(test$ClaimNb)
 test_percent <- prop.table(test_table) * 100
 cat("\n\nRépartition des modalités dans la table de test:\n")
 test_percent
@@ -682,17 +679,17 @@ La famille de Poisson est utilisée pour modéliser des variables aléatoires di
 
 ```{r}
 # Modele initial de la Poisson
-glm_poisson <- glm(formula_model,family = poisson(link="log"), data = train_freq)
-summary(glm_poisson)
+glm_poisson_nb <- glm(formula_model,family = poisson(link="log"), data = train)
+summary(glm_poisson_nb)
 ```
 A partir de ces informations, on voit que la région ainsi que la puissance ne sont pas très significatives on les retire. Concernant Brand_1, nous nous disons qu'il n'est pas pertinent de garder Brand_2 qui est significatif et retirer Brand_1 qui est important pour nos données.
 
 ```{r}
 #Modele poisson une fois les variables non significatives retirees
-glm_poisson <- glm(
+glm_poisson_nb <- glm(
   ClaimNb ~ -1 + Exposure + CarAge + Gas + DriverAge + Density + Brand_1 + Brand_2,
-  family = poisson(link = "log"),data = train_freq)
-summary(glm_poisson)
+  family = poisson(link = "log"),data = train)
+summary(glm_poisson_nb)
 ```
 ========== Modele Poisson surdisperse  ========== 
 
@@ -700,18 +697,18 @@ La famille de Poisson surdisperse est une extension de la famille de Poisson qui
 
 ```{r}
 # Modele initial Poisson surdispersée 
-glm_quasipoisson <- glm(formula_model,family = quasipoisson(link="log"), data = train_freq)
-summary(glm_quasipoisson)
+glm_quasipoisson_nb <- glm(formula_model,family = quasipoisson(link="log"), data = train)
+summary(glm_quasipoisson_nb)
 ```
 Comme précédemment, nous gardons l'ensemble des variables quantititatives et nous retirons les variables quantitatives hors celles de la marque (1 & 2)
 
 ```{r}
 #Modele de poisson surdisperse apres avoir retire les variables non significatives
-glm_quasipoisson <- glm(
+glm_quasipoisson_nb <- glm(
   ClaimNb ~ -1 + Exposure + CarAge + Gas + DriverAge + 
     Density + Brand_1 + Brand_2, family = quasipoisson(link = "log"),
-  data = train_freq)
-summary(glm_quasipoisson)
+  data = train)
+summary(glm_quasipoisson_nb)
 ```
 ========== Modele négatif binomial  ========== 
 
@@ -719,31 +716,31 @@ La famille de négatif binomial est une autre extension de la famille de Poisson
 
 ```{r}
 # Modèle initial de la Binomiale négative
-glm_bin_neg <- glm.nb(formula_model, data = train_freq)
-summary(glm_bin_neg)
+glm_bin_neg_nb <- glm.nb(formula_model, data = train)
+summary(glm_bin_neg_nb)
 ```
 Nous avons la même analyse que précédemment
 
 ```{r}
 # Modèle de la Binomiale négative après avoir retiré les variables non significatives
-glm_bin_neg <- glm.nb(
+glm_bin_neg_nb <- glm.nb(
   ClaimNb ~ -1 + Exposure + CarAge + Gas + DriverAge + 
-    Density +Brand_1 + Brand_2 + Brand_3,data = train_freq)
-summary(glm_bin_neg)
+    Density +Brand_1 + Brand_2 + Brand_3,data = train)
+summary(glm_bin_neg_nb)
 ```
 ========== Choix du meilleur modèle selon AIC ==========
 
-Déterminons maintenant le meilleur modèle au sens du critère AIC
+Déterminons maintenant le meilleur modèle au sens du critère AIC pour le nombre de sinistres
 
 ```{r}
 # Extraire les AIC des modèles, on retire le modele poisson surdisperse car etant un quasi modele, il n'a pas de vraisemblance, cependant par simplicité nous décidons de ne pas évaluer le quasi AIC
 
 # Créer un data frame avec les noms de modèle et leur AIC associé
 AIC_data <- data.frame(Modele = c("Modele Poisson", "Modele Binomial Negatif"),
-                       AIC = c(AIC(glm_poisson), AIC(glm_bin_neg)))
+                       AIC = c(AIC(glm_poisson_nb), AIC(glm_bin_neg_nb)))
 
 # Afficher le nom du modèle qui minimise l'AIC avec sa valeur
-cat("Le modèle qui minimise l'AIC est le ", AIC_data$Modele[which.min(AIC_data$AIC)], "avec une valeur d'AIC de", min(AIC_data$AIC))
+cat("Le modèle pour le nombre de sinistre qui minimise l'AIC est le ", AIC_data$Modele[which.min(AIC_data$AIC)], "avec une valeur d'AIC de", min(AIC_data$AIC))
 
 ```
 
@@ -756,16 +753,16 @@ Pour cela, nous allons utilier le Root Mean Square Error évaluer la précision 
 
 
 ```{r}
-x_test_nb = subset(test_freq, select=-c(PolicyID, ClaimNb, ClaimAmount))
-y_test_nb = test_freq$ClaimNb
+x_test_nb = subset(test, select=-c(PolicyID, ClaimNb, ClaimAmount))
+y_test_nb = test$ClaimNb
 
 RMSE <- function(observed_data, predicted_data){
   return(sqrt(mean((observed_data - predicted_data)^2)))
 }
 
-y_poisson_nb = predict(glm_poisson, newdata = x_test_nb, type = "response")
-y_quasipoisson_nb = predict(glm_quasipoisson, newdata = x_test_nb, type = "response")
-y_bin_neg_nb = predict(glm_bin_neg, newdata = x_test_nb, type = "response")
+y_poisson_nb = predict(glm_poisson_nb, newdata = x_test_nb, type = "response")
+y_quasipoisson_nb = predict(glm_quasipoisson_nb, newdata = x_test_nb, type = "response")
+y_bin_neg_nb = predict(glm_bin_neg_nb, newdata = x_test_nb, type = "response")
 
 # Créer un data frame avec les noms de modèle et leur AIC associé
 RMSE_data <- data.frame(Modele = c("Modele Poisson", "Modele Quasi Poisson", "Modele Binomial Negatif"), 
@@ -790,20 +787,21 @@ formula_model <- ClaimAmount ~ -1 + Exposure + CarAge + Gas + Density + DriverAg
                   Region_1 + Region_2 + Region_3 
 
 #On filtre la base pour ne garder que les montants positifs car notre etude se concentre desormais sur les valeurs positives
-train_cout <- train_cout[train_cout$ClaimAmount >0,]
-test_cout <- test_cout[test_cout$ClaimAmount >0,]
+#train <- train[train$ClaimAmount >0,]
+#test <- test[test$ClaimAmount >0,]
 ```
 
 ========== Modele de Gamma ========== 
 
 ```{r}
 #Modèle Initial pour gamma
-glm_gamma_cout <- glm(formula_model,family = Gamma(link="log"), data = train_cout)
+#On modifie la database pour utiliser la loi gamma car il faur des montant de sinistres >0 pour utiliser la loi Gamma
+glm_gamma_cout <- glm(formula_model,family = Gamma(link="log"), data = train[train$ClaimAmount >0,])
 summary(glm_gamma_cout)
 ```
 ```{r}
 #Modèle après avoir retiré les variables non significatives pour gamma
-glm_gamma_cout <- glm(ClaimNb ~ -1 + Gas + Region_1,family = Gamma(link="log"), data = train_cout)
+glm_gamma_cout <- glm(ClaimNb ~ -1 + Gas + Region_1,family = Gamma(link="log"), data = train[train$ClaimAmount >0,])
 summary(glm_gamma_cout)
 ```
 
@@ -812,15 +810,17 @@ summary(glm_gamma_cout)
 
 ```{r}
 #Modèle initial gaussien
-glm_gaussien_cout <- glm(formula_model,family = gaussian(link="identity"), data = train_cout)
+glm_gaussien_cout <- glm(formula_model,family = gaussian(link="identity"), data = train)
 summary(glm_gaussien_cout)
 ```
 on garde l'age du conducteur ainsi que le type d'essence mais vu le peu de significativité des variables, cet modèle ne semble pas intéressant
 ```{r}
 #Modèle en retenant quelques variables significatives
-glm_gaussien_cout <- glm(ClaimNb ~ -1 + Gas + DriverAge,family = gaussian(link="identity"), data = train_cout)
+glm_gaussien_cout <- glm(ClaimNb ~ -1 + Gas + DriverAge,family = gaussian(link="identity"), data = train)
 summary(glm_gaussien_cout)
 ```
+Nous observons un AIC négatif en plus de notre observation initiales que les vairables étaient peu significatives, nous ne retenons pas ce modèle par la suite.
+
 ========== Modele Poisson & Quasi Poisson ========== 
 
 La famille de Poisson et quasi poisson sont ici inutiles dans le cadre de l'estimation du montant de sinistres.
@@ -831,7 +831,7 @@ La famille de négatif binomial est une autre extension de la famille de Poisson
 
 ```{r}
 # Modèle initial de la Binomiale négative
-glm_bin_neg_cout <- glm.nb(formula_model, data = train_cout)
+glm_bin_neg_cout <- glm.nb(formula_model, data = train)
 summary(glm_bin_neg_cout)
 ```
 En analysant les variables significatives on garde : 
@@ -839,7 +839,7 @@ En analysant les variables significatives on garde :
 ```{r}
 # Modèle de la Binomiale négative après avoir retiré les variables non significatives
 glm_bin_neg_cout <- glm.nb(
-  ClaimNb ~ -1 + Exposure + Gas +Region_1 ,data = train_cout)
+  ClaimNb ~ -1 + Exposure + Gas +Region_1 + DriverAge +Region_1,data = train)
 summary(glm_bin_neg_cout)
 ```
 ========== Choix du meilleur modèle selon AIC ==========
@@ -850,8 +850,8 @@ Déterminons maintenant le meilleur modèle au sens du critère AIC
 # Extraire les AIC des modèles, on retire le modele poisson surdisperse car etant un quasi modele, il n'a pas de vraisemblance, cependant par simplicité nous décidons de ne pas évaluer le quasi AIC
 
 # Créer un data frame avec les noms de modèle et leur AIC associé
-AIC_data <- data.frame(Modele = c("Modele Gamma","Modele Gaussien", "Modele Binomial Negatif"),
-                       AIC = c(AIC(glm_gaussien_cout), AIC(glm_gaussien_cout), AIC(glm_bin_neg_cout)))
+AIC_data <- data.frame(Modele = c("Modele Gamma", "Modele Binomial Negatif"),
+                       AIC = c(AIC(glm_gamma_cout), AIC(glm_bin_neg_cout)))
 
 # Afficher le nom du modèle qui minimise l'AIC avec sa valeur
 cat("Le modèle qui minimise l'AIC est le ", AIC_data$Modele[which.min(AIC_data$AIC)], "avec une valeur d'AIC de", min(AIC_data$AIC))
@@ -867,8 +867,8 @@ Pour cela, nous allons utilier le Root Mean Square Error évaluer la précision 
 
 
 ```{r}
-x_test_cout = subset(test_cout, select=-c(PolicyID, ClaimNb, ClaimAmount))
-y_test_cout = test_cout$ClaimAmount
+x_test = subset(test, select=-c(PolicyID, ClaimNb, ClaimAmount))
+y_test = test$ClaimAmount
 
 RMSE <- function(observed_data, predicted_data){
   return(sqrt(mean((observed_data - predicted_data)^2)))
@@ -881,12 +881,41 @@ y_quasipoisson_nb = predict(glm_quasipoisson, newdata = x_test_nb, type = "respo
 y_bin_neg_nb = predict(glm_bin_neg, newdata = x_test_nb, type = "response")
 
 # Créer un data frame avec les noms de modèle et leur AIC associé
-RMSE_data <- data.frame(Modele = c("Modele Gaussien", "Modele Gamma", "Modele Binomial Negatif"), 
-                        RMSE = c(RMSE(y_test_nb, y_gaussien_nb),
-                                 RMSE(y_test_nb, y_gamma_nb),
+RMSE_data <- data.frame(Modele = c( "Modele Gamma", "Modele Binomial Negatif"), 
+                        RMSE = c(RMSE(y_test_nb, y_gamma_nb),
                                  RMSE(y_test_nb, y_bin_neg_nb)))
 
 # Afficher le nom du modèle qui minimise le RMSE avec sa valeur
 cat("Le modèle qui minimise le RMSE est le ", RMSE_data$Modele[which.min(RMSE_data$RMSE)], "avec une valeur de RMSE de", min(RMSE_data$RMSE))
 
 ```
+
+### IV.1.1 Tarification 
+
+Nous allons nous appuyer sur un modèle de type Fréquence x Cout comme nous l'avons vu en cours d'assurancde Non vie
+
+
+```{r}
+#Montant des sinistres observés : 
+mt_sinistres = sum(df$ClaimAmount)
+
+##Modele avec critere AIC
+freq_aic<- predict(glm_bin_neg_nb, newdata = base_data_onehot, type = "response")
+cout_aic <- predict(glm_bin_neg_cout, newdata = base_data_onehot, type = "response")
+resultat_aic <- sum(freq_aic*cout_aic)
+
+##Modele avec critere RMSE
+freq_RMSE <- predict(glm_poisson_nb, newdata = base_data_onehot, type = "response")
+cout_RMSE <- predict(glm_bin_neg_cout, newdata = base_data_onehot, type = "response")
+resultat_RMSE <-sum(freq_rmse*cout_rmse)
+
+# Créer un data frame avec les noms de modèle et leur prix associé
+tarif_data <- data.frame(Modele = c( "Modele AIC", "Modele RMSE"), 
+                        tarif = c(resultat_aic,resultat_RMSE))
+
+# Afficher le nom du modèle qui minimise le RMSE avec sa valeur
+cat("Le tarif choisi par mesure de prudence est le", tarif_data$Modele[which.max(tarif_data$tarif)], "avec tarif de", max(tarif_data$tarif))
+
+
+```
+
