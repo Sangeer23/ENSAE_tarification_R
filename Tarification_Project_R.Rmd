@@ -48,10 +48,44 @@ data("freMTPLsev" , package = "CASdatasets")
 ```{r}
 skim(freMTPLfreq)
 ```
+La table FreqMTPLfreq contient 413169 lignes et 10 colonnes. 
+Elle contient 5 variables numériques (ClaimNb, Exposure, CarAge, DriverAge et Density) et 5 variables catégorielles (PolicyID, Power, Brand, Gas et Region). 
+
+Nous avons:
+- 12 puissances différentes. La plus fréquente est la puissance f qui représente 23.17 %
+- 7 groupes de marques de véhicules. La plus fréquente est le groupe de marque française Renault, Nissan or Citroen qui représente environ 53 %. 
+- 2 type de carburant avec des proportions presque égales. 
+- Des assurés dans 10 différentes régions. Celle qui couvre la majorité est la région centre. 
+
+Concernant les variables numériques, nous constatons que :
+- Plus de 75 % des polices n'ont pas enregistrés de sinistres. Cependant, nous avons des polices avec 4 sinistres enregistrés sur la période considérée. - Nous avons une exposition maximale de 1,99. Cela doit correspondre à une erreur car on raisonne généralement en exercice qui correspond à 1 an. Nous devons traiter ces variables en ramenant l'exposition à 1 ou 0.99. 
+- Les voitures assurées sont généralement des voitures assez récentes. Cependant, nous remarquons la présence de voiture très vielles jusqu'à 100 ans. Ces voitures peuvent correspondre à des voitures de collections ou à des erreurs de frappe. 
+- Les assurés assez bien répartis sur l'intervalle [18; 100]
+- Les régions couvertes sont assez hétérogènes en terme de densité de population. Nous avons des régions très peuplées et des régions quasiment désertes.
+
+Par ailleurs, notons qu'il n'ya pas de valeurs manquantes dans toute la base de données. 
+
+```{r}
+cat("\n\nPourcentages des modalités de Power dans la base:\n")
+prop.table(table(freMTPLfreq$Power)) * 100
+
+cat("\n\nPourcentages des modalités de Brand dans la base:\n")
+prop.table(table(freMTPLfreq$Brand)) * 100
+
+cat("\n\nPourcentages des modalités de Gas dans la base:\n")
+prop.table(table(freMTPLfreq$Gas)) * 100
+
+cat("\n\nPourcentages des modalités de Region dans la base:\n")
+prop.table(table(freMTPLfreq$Region)) * 100
+
+```
+Nous constatons que plusieurs modalités sont considérées de rares car elles ont de faibles proportions dans la base de données. Dans la suite, il conviendra de procéder à un regoupement de modalités.
+
 
 ```{r}
 skim(freMTPLsev)
 ```
+La base de données freMTPLsev contient 16181 lignes et deux colonnes. Nous n'avons pas de valeurs manquantes dans la base de données. Le coût moyen des sinistres est de 2129. Par ailleurs, la différence entre la moyenne et le 3e quartile nous montre que la moyenne est très tirée à la hausse par les coûts très élévés dans la base de données. 
 
 ## I.2 : Analyse univariée
 
@@ -64,39 +98,49 @@ barplot(table(freMTPLfreq$DriverAge), main="Repartition de la population par âg
 
 ```
 Commentaires : 
-
+La majorité de la population est comprise dans l'intervalle [25 ; 55]. Nous avons très peu d'individus après 83 ans. Nous pouvons pour la modélisation faire des classes d'âges. Ce qui nous permettra d'homogénéiser la population dans des classes d'âges.  
 
 ```{r}
 # Exposition
 barplot(table(freMTPLfreq$Exposure), main="Repartition de l'exposition du portefeuille", xlab="Exposition", ylab="valeur", col="#2ecc71")
 ```
-Commentaires : 
+Commentaires : Même commentaire que précédemment. 
 
 
 ```{r}
 # Age de la voiture
 barplot(table(freMTPLfreq$CarAge), main="Ancienneté du parc automobile assuré", xlab="Age de la voiture", ylab="valeur", col="#2ecc71")
 ```
-Commentaires :
+Commentaires : Même commentaire. Remarquons la concentration de l'âge des véhicules en dessous de 15 ans. 
 
 
 ```{r}
 # Densité
 barplot(table(freMTPLfreq$Density), main="Densité sur le portefeuille", xlab="Densité", ylab="valeur", col="#2ecc71")
 ```
-Commentaires : 
+Commentaires : Même remarque. 
 
 ```{r}
 # Nombre de sinistre
 barplot(table(freMTPLfreq$ClaimNb), main="Nombre de sinistres", xlab="Densité", ylab="valeur", col="#2ecc71")
 ```
-Commentaires :
+Commentaires : Même remarque.
 
 ```{r}
 # Montant des sinsitres
-barplot(table(freMTPLsev$ClaimAmount), main="Densité sur le portefeuille", xlab="Densité", ylab="valeur", col="#2ecc71")
+barplot(table(freMTPLsev$ClaimAmount), main="Montant des sinsitres", xlab="Densité", ylab="valeur", col="#2ecc71")
 ```
-Commentaires :
+Commentaires : Nous avons une concentration des montants entre 1063 et 1390. L'hétérogénéité des sinistres peut venir de la différence entre les garanties sinistrées. Généralement, coûts compris entre 1063 et 1390 correspondent aux indemnisations de la garantie "Responsabilité Civile".
+
+```{r}
+ggplot(subset(freMTPLsev, ClaimAmount < 2500), aes(x = ClaimAmount)) +
+  geom_density(fill = "#2ecc71", alpha = 0.5) +
+  labs(title = "Densité du montant des sinistres",
+       x = "Montant des sinistres",
+       y = "Densité") +
+  theme_minimal()
+```
+
 
 ### I.2.1 : Variables catégorielles
 
@@ -121,27 +165,27 @@ create_pie_chart <- function(data, variable_name) {
 ```{r}
 create_pie_chart(freMTPLfreq, "Brand")
 ```
-Commentaires : 
+Commentaires : Même commentaire
 
 
 ```{r}
 create_pie_chart(freMTPLfreq, "Power")
 
 ```
-Commentaires : 
+Commentaires : Même commentaire
 
 
 ```{r}
 create_pie_chart(freMTPLfreq, "Gas")
 
 ```
-Commentaires : 
+Commentaires : Même commentaire
 
 
 ```{r}
 create_pie_chart(freMTPLfreq, "Region")
 ```
-Commentaires : 
+Commentaires : Même commentaire
 
 ## I.3 : Analyse multivariée
 
@@ -163,34 +207,24 @@ freMTPLsev$PolicyID  <- as.character(freMTPLsev$PolicyID)
 # Effectuer une jointure
 base_data <- left_join(freMTPLfreq, freMTPLsev, by = "PolicyID")
 dim(base_data)
-```
-```{r}
-
-# Check if there are no incoherences in the code
 
 # Replace NA values with 0 for numerical calculations
 base_data$ClaimAmount[is.na(base_data$ClaimAmount)] <- 0
-
-# Aggregate data and perform calculations
-aggregated_base_data <- base_data %>%
-  group_by(PolicyID) %>%
-  summarise(
-    count_policyID = n(),
-    mean_claim_number = mean(ClaimNb, na.rm = TRUE),
-    sum_claim_amount = sum(ClaimAmount, na.rm = TRUE)
-  ) %>%
-  mutate(
-    check_policyID_mean_claim = count_policyID >= mean_claim_number
-  ) %>%
-  filter(check_policyID_mean_claim == FALSE)
-
-# Print the filtered data frame
-print(aggregated_base_data)
 ```
-
+```{r}
+skim(base_data)
+```
 Commentaires : 
 
 ### I.3.1 : Corrélation entre variables numériques
+
+```{r}
+# Supposons que 'num_vars' et 'cat_vars' sont vos listes de noms de variables
+num_vars <- c("Exposure", "CarAge", "DriverAge", "Density", "ClaimAmount", "ClaimNb")  # Exemple de variables numériques
+cat_vars <- c("Power", "Brand", "Gas", "Region")  # Exemple de variables catégorielles
+
+```
+
 
 ```{r}
 # Calculer la matrice de corrélation pour les colonnes numériques
@@ -201,70 +235,9 @@ correlation_matrix <- freMTPLfreq %>%
 # Afficher la matrice de corrélation
 print(correlation_matrix)
 ```
-Commentaires : 
+Commentaires : Les corrélations entre les variables numériques sont très faibles. Ce qui est très bien pour nos modélisations. 
 
-### I.3.2 : Corrélation entre variables numériques et catégorielles
-
-```{r}
-perform_kruskal <- function(data, numeric_vars, categorical_vars) {
-  # Charger les bibliothèques nécessaires
-  library(dplyr)
-  
-  # Préparer le dataframe pour les résultats
-  results <- data.frame(
-    Numeric_Variable = character(),
-    Categorical_Variable = character(),
-    Kruskal_Statistic = numeric(),
-    P_Value = numeric(),
-    stringsAsFactors = FALSE
-  )
-  
-  # Boucle pour chaque combinaison de variable numérique et catégorielle
-  for (num_var in numeric_vars) {
-    for (cat_var in categorical_vars) {
-      # Assurer que la variable catégorielle est de type facteur
-      data[[cat_var]] <- as.factor(data[[cat_var]])
-      
-      # Exécuter le test de Kruskal-Wallis
-      test_result <- kruskal.test(reformulate(cat_var, response = num_var), data = data)
-      
-      # Ajouter le résultat au dataframe de résultats
-      results <- rbind(results, data.frame(
-        Numeric_Variable = num_var,
-        Categorical_Variable = cat_var,
-        Kruskal_Statistic = test_result$statistic,
-        P_Value = test_result$p.value
-      ))
-    }
-  }
-  
-  # Création d'une matrice de corrélation
-  results$Significance <- ifelse(results$P_Value < 0.05, "Significant", "Not Significant")
-  
-  # Créer une matrice visuelle des résultats
-  results_matrix <- results %>%
-    pivot_wider(names_from = Categorical_Variable, values_from = Significance)
-  
-  return(results_matrix)
-}
-
-```
-Commentaires : 
-
-
-```{r}
-# Supposons que 'num_vars' et 'cat_vars' sont vos listes de noms de variables
-num_vars <- c("Exposure", "CarAge", "DriverAge", "Density", "ClaimAmount", "ClaimNb")  # Exemple de variables numériques
-cat_vars <- c("Power", "Brand", "Gas", "Region")  # Exemple de variables catégorielles
-
-# Appliquer la fonction
-results_matrix <- perform_kruskal(base_data, num_vars, cat_vars)
-print(results_matrix)
-
-```
-Commentaires : 
-
-### I.3.3 : Corrélation entre variables catégorielles
+### I.3.2 : Corrélation entre variables catégorielles
 
 ```{r}
 cramers_v <- function(chi2, n, r, k) {
@@ -313,8 +286,65 @@ results_matrix <- chi2_cramers_v_matrix(base_data, cat_vars)
 print(results_matrix)
 
 ```
-Commentaires :
+Commentaires : Pour la corrélation entre les variables catégorielles, le V de Cramer nous permet d'avoir l'intensité. A l'instar des variables numériques les corrélations entre elles sont très faible. Le coefficient de corrélation le plus élevé est celui entre la puissance et le type de puissance.
 
+### I.3.3 : Corrélation entre variables numériques et catégorielles
+
+```{r}
+perform_kruskal <- function(data, numeric_vars, categorical_vars) {
+  # Charger les bibliothèques nécessaires
+  library(dplyr)
+  
+  # Préparer le dataframe pour les résultats
+  results <- data.frame(
+    Numeric_Variable = character(),
+    Categorical_Variable = character(),
+    Kruskal_Statistic = numeric(),
+    P_Value = numeric(),
+    stringsAsFactors = FALSE
+  )
+  
+  # Boucle pour chaque combinaison de variable numérique et catégorielle
+  for (num_var in numeric_vars) {
+    for (cat_var in categorical_vars) {
+      # Assurer que la variable catégorielle est de type facteur
+      data[[cat_var]] <- as.factor(data[[cat_var]])
+      
+      # Exécuter le test de Kruskal-Wallis
+      test_result <- kruskal.test(reformulate(cat_var, response = num_var), data = data)
+      
+      # Ajouter le résultat au dataframe de résultats
+      results <- rbind(results, data.frame(
+        Numeric_Variable = num_var,
+        Categorical_Variable = cat_var,
+        Kruskal_Statistic = test_result$statistic,
+        P_Value = test_result$p.value
+      ))
+    }
+  }
+  
+  # Création d'une matrice de corrélation
+  results$Significance <- ifelse(results$P_Value < 0.05, "Significant", "Not Significant")
+  
+  # Créer une matrice visuelle des résultats
+  results_matrix <- results %>%
+    pivot_wider(names_from = Categorical_Variable, values_from = Significance)
+  
+  return(results_matrix)
+}
+
+```
+
+```{r}
+# Appliquer la fonction
+results_matrix <- perform_kruskal(base_data, num_vars, cat_vars)
+print(results_matrix)
+
+```
+Commentaires : Le test de Kruskall Walis permet d'étudier la dépendance entre des variables numériques et catégorielles. Nous remarquons ici qu'il y'a effectivement dépendance entre les variables. 
+
+
+### I.3.4 : Sinistralité par âge
 
 On regarde le nombre de personnes ayant eu au moins un sinistre par âge
 ```{r}
@@ -324,7 +354,6 @@ barplot(table(freMTPLfreq[freMTPLfreq$ClaimNb!=0,]$DriverAge),
         ylab="Nb de sinistres",
         col="#e67e22")
 ```
-
 On regarde le nombre de sinistres par age en prenant en compte le nombre de polices dans cette classe d'âge
 
 ```{r}
@@ -368,9 +397,9 @@ On remarque une "bosse" pour les plus jeunes âges. Une proportion élevée qui 
 ```{r}
 skim(base_data)
 ```
-
 # Partie III : Modélisation
-## III.1 
+## III.1 Modifications de la base de données
+### III.1.1 Regroupement de modalités
 
 On cherche dans un premier temps à regrouper les variables qualitatives entre elles pour avoir moins de modalités par la suite dans notre régression
 
@@ -526,29 +555,119 @@ base_data <- base_data %>%
 
 ```
 
-Passons à la modélisation
+### III.1.2 Vérification des modifications sur la base de données
 
 ```{r}
-#On sépare le jeu de données en set d'entrainement et de test
-set.seed(123)
-indexes <- sample(1:nrow(base_data), size=0.75*nrow(base_data))
-train_freq <- base_data[indexes,]
-test_freq <- base_data[-indexes,]
+cat("\n\nPourcentages des modalités de Power dans la base:\n")
+prop.table(table(base_data$Power)) * 100
+
+cat("\n\nPourcentages des modalités de Brand dans la base:\n")
+prop.table(table(base_data$Brand)) * 100
+
+cat("\n\nPourcentages des modalités de Gas dans la base:\n")
+prop.table(table(base_data$Gas)) * 100
+
+cat("\n\nPourcentages des modalités de Region dans la base:\n")
+prop.table(table(base_data$Region)) * 100
 ```
 
 
-# CAS SANS CONSTANTE / INTERCEPTION
+
+### III.1.4 Encodage des variables 
 
 ```{r}
-#Pour éviter de réécrire toujours les mêmes variables, on les met dans une variable distincte
-formula_model <- ClaimNb ~ Exposure + CarAge + Gas + DriverAge + Density +
+# Commencer avec le dataframe original
+base_data_onehot <- base_data
+
+# Créer une variable dummy pour Power
+dummy <- dummyVars(" ~ Power", data = base_data_onehot)
+onehot_data <- predict(dummy, newdata = base_data_onehot)
+onehot_df <- as.data.frame(onehot_data)
+colnames(onehot_df) <- gsub("PowerPower_", "Power_", colnames(onehot_df))
+base_data_onehot <- cbind(base_data_onehot, onehot_df)
+base_data_onehot$Power <- NULL
+
+# Créer une variable dummy pour Region
+dummy <- dummyVars(" ~ Region", data = base_data_onehot)
+onehot_data <- predict(dummy, newdata = base_data_onehot)
+onehot_df <- as.data.frame(onehot_data)
+colnames(onehot_df) <- gsub("RegionRegion_", "Region_", colnames(onehot_df))
+base_data_onehot <- cbind(base_data_onehot, onehot_df)
+base_data_onehot$Region <- NULL
+
+# Créer une variable dummy pour Brand
+dummy <- dummyVars(" ~ Brand", data = base_data_onehot)
+onehot_data <- predict(dummy, newdata = base_data_onehot)
+onehot_df <- as.data.frame(onehot_data)
+colnames(onehot_df) <- gsub("BrandBrand_", "Brand_", colnames(onehot_df))
+base_data_onehot <- cbind(base_data_onehot, onehot_df)
+base_data_onehot$Brand <- NULL
+
+# Vérifier les premières lignes du dataframe mis à jour
+head(base_data_onehot)
+```
+
+```{r}
+# Vérifier les premières lignes du dataframe mis à jour
+head(base_data)
+```
+
+
+
+## III.2 Modélisation
+### III.2.1 Split de la base de données
+
+Nous procédons à un split stratifié pour avoir les mêmes proportions des modalités de la variable cible dans les jeu de données d'entrainement et de test. 
+
+```{r}
+#Fixer l'aléa et partitionner les données pour le nombre de sinistres en 75%/25%
+
+set.seed(123)
+
+# Créer un index pour le split stratifié
+indexes <- createDataPartition(base_data_onehot[["ClaimNb"]], p=0.75, list=FALSE)
+# Créer les ensembles d'entraînement et de test
+train_freq <- base_data_onehot[indexes,]
+test_freq <- base_data_onehot[-indexes,]
+
+#Tester les GLM pour le nombre de sinistres
+#train_freq$Brand <- as.factor(train_freq$Brand)
+train_freq$Gas <- as.factor(train_freq$Gas)
+#train_freq$Region <- as.factor(train_freq$Region)
+#train_freq$Power <- as.factor(train_freq$Power)
+```
+
+```{r}
+# Calculer les fréquences des modalités de ClaimNb dans train_freq
+train_table <- table(train_freq$ClaimNb)
+train_percent <- prop.table(train_table) * 100
+cat("Répartition des modalités dans la table d'entraînement:\n")
+train_percent
+
+# Calculer les fréquences des modalités de ClaimNb dans test_freq
+test_table <- table(test_freq$ClaimNb)
+test_percent <- prop.table(test_table) * 100
+cat("\n\nRépartition des modalités dans la table de test:\n")
+test_percent
+```
+
+### III.2.2 Modélisation du nombre de sinistre
+
+Passons à la modélisation.
+
+#### CAS SANS CONSTANTE / INTERCEPTION
+
+Pour éviter de réécrire toujours les mêmes variables, on les met dans une variable distincte.
+
+```{r}
+formula_model <- ClaimNb ~ -1 + Exposure + CarAge + Gas + Density + DriverAge +
                   Power_1 + Power_2 + Power_3 +
                   Brand_1 + Brand_2 + Brand_3 + 
-                  Region_1 + Region_2 + Region_3 + Region_4
-
-#L'intercept (ie constante) dans un modèle GLM représente la valeur attendue de la variable dépendante lorsque toutes les variables indépendantes sont égales à zéro. Dans notre cas, on souhaite comparer les effets de différents groupes de variables, on élimite donc la constante avec le -1
+                  Region_1 + Region_2 + Region_3 + Region_4 
 
 ```
+
+L'intercept (ie constante) dans un modèle GLM représente la valeur attendue de la variable dépendante lorsque toutes les variables indépendantes sont égales à zéro. Dans notre cas, on souhaite comparer les effets de différents groupes de variables, on élimine donc la constante avec le -1.
 
 ```{r}
 # Modele de Gamma à ne pas utiliser comme le nombre de sinistre peut être = 0, or gamma défini pour x>0
@@ -556,22 +675,24 @@ formula_model <- ClaimNb ~ Exposure + CarAge + Gas + DriverAge + Density +
 #summary(glm_gamma)
 ```
 
+La famille de Poisson est utilisée pour modéliser des variables aléatoires discrètes qui prennent des valeurs entières positives. Elle est souvent utilisée pour modéliser des comptages d'évènements rares, tels que le nombre de sinistres.
+
 ```{r}
 # Modele de Poisson
-# La famille de Poisson est utilisée pour modéliser des variables aléatoires discrètes qui prennent des valeurs entières positives. Elle est souvent utilisée pour modéliser des comptages d'événements rares, tels que le nombre de sinistres.
-glm_poisson <- glm(ClaimNb ~ Exposure + CarAge + Gas + DriverAge + Density + Power,family = poisson(link="log"), data = train_freq)
+glm_poisson <- glm(formula_model,family = poisson(link="log"), data = train_freq)
 summary(glm_poisson)
-
+AIC_poisson = abs(glm_poisson$aic)
 ```
 
 A partir de ces informations, on voit que la densité n'est pas très significative, on la retire
 
 ```{r}
 glm_poisson <- glm(
-  ClaimNb ~ -1 + Exposure + CarAge + Gas + DriverAge +
-    Power_1 + Power_2 + Power_3 +
-    Brand_1 + Brand_2 + Brand_3 +
-    Region_1 + Region_2 + Region_3 + Region_4,
+  ClaimNb ~ -1 + Exposure + CarAge + Gas + DriverAge + 
+    Density +
+    #Power_1 + Power_2 + Power_3 +
+    Brand_1 + Brand_2 + Brand_3,
+    #Region_1 + Region_2 + Region_3 + Region_4,
   family = poisson(link = "log"),
   data = train_freq
 )
@@ -579,9 +700,10 @@ summary(glm_poisson)
 
 ```
 
+La famille de Poisson quasi est une extension de la famille de Poisson qui permet de prendre en compte la surdispersion des données. La surdispersion se produit lorsque la variance des données est supérieure à la moyenne, ce qui peut rendre le modèle de Poisson inadapté.
+
 ```{r}
 # Modele de Poisson surdispersée 
-# La famille de Poisson quasi est une extension de la famille de Poisson qui permet de prendre en compte la surdispersion des données. La surdispersion se produit lorsque la variance des données est supérieure à la moyenne, ce qui peut rendre le modèle de Poisson inadapté.
 glm_quasipoisson <- glm(formula_model,family = quasipoisson(link="log"), data = train_freq)
 summary(glm_quasipoisson)
 ```
@@ -589,19 +711,22 @@ Encore une fois, la densité n'est pas significative
 
 ```{r}
 glm_quasipoisson <- glm(
-  ClaimNb ~ -1 + Exposure + CarAge + Gas + DriverAge +
-    Power_1 + Power_2 + Power_3 + Brand_1 + Brand_2 + Brand_3 +
-    Region_1 + Region_2 + Region_3 + Region_4,
+  ClaimNb ~ -1 + Exposure + CarAge + Gas + DriverAge + 
+    Density +
+    #Power_1 + Power_2 + Power_3 + 
+    Brand_1 + Brand_2, 
+  #+ Brand_3,
+    #Region_1 + Region_2 + Region_3 + Region_4,
   family = quasipoisson(link = "log"),
   data = train_freq
 )
 summary(glm_quasipoisson)
 ```
 
+La famille de négatif binomial est une autre extension de la famille de Poisson qui permet de prendre en compte la surdispersion des données. Elle est souvent utilisée pour modéliser des comptages d'événements qui présentent une forte variabilité. 
+
 ```{r}
 # Modèle de la Binomiale négative
-# La famille de négatif binomial est une autre extension de la famille de Poisson qui permet de prendre en compte la surdispersion des données. Elle est souvent utilisée pour modéliser des comptages d'événements qui présentent une forte variabilité. 
-
 modele_bin_neg <- glm.nb(formula_model, data = train_freq)
 summary(modele_bin_neg)
 ```
@@ -609,14 +734,16 @@ Encore une fois, la densité n'est pas significative
 
 ```{r}
 modele_bin_neg <- glm.nb(
-  ClaimNb ~ -1 + Exposure + CarAge + Gas + DriverAge +
-    Power_1 + Power_2 + Power_3 + Brand_1 + Brand_2 + Brand_3 +
-    Region_1 + Region_2 + Region_3 + Region_4,
+  ClaimNb ~ -1 + Exposure + CarAge + Gas + DriverAge + 
+    Density +
+    #Power_1 + Power_2 + Power_3 + 
+    Brand_1 + Brand_2 + Brand_3,
+    #Region_1 + Region_2 + Region_3 + Region_4,
   data = train_freq
 )
 summary(modele_bin_neg)
 ```
-# CAS AVEC CONSTANTE / INTERCEPTION
+#### CAS AVEC CONSTANTE / INTERCEPTION
 
 ```{r}
 #Pour éviter de réécrire toujours les mêmes variables, on les met dans une variable distincte
@@ -633,8 +760,7 @@ formula_model <- ClaimNb ~ Exposure + CarAge + Gas + DriverAge + Density +
 ```
 
 ```{r}
-# Modele de Poisson
-# La famille de Poisson est utilisée pour modéliser des variables aléatoires discrètes qui prennent des valeurs entières positives. Elle est souvent utilisée pour modéliser des comptages d'événements rares, tels que le nombre de sinistres.
+# Modèle de Poisson
 glm_poisson <- glm(formula_model,family = poisson(link="log"), data = train_freq)
 summary(glm_poisson)
 ```
@@ -654,7 +780,6 @@ summary(glm_poisson)
 
 ```{r}
 # Modele de Poisson surdispersée 
-# La famille de Poisson quasi est une extension de la famille de Poisson qui permet de prendre en compte la surdispersion des données. La surdispersion se produit lorsque la variance des données est supérieure à la moyenne, ce qui peut rendre le modèle de Poisson inadapté.
 glm_quasipoisson <- glm(formula_model,family = quasipoisson(link="log"), data = train_freq)
 summary(glm_quasipoisson)
 ```
@@ -672,12 +797,10 @@ summary(glm_quasipoisson)
 
 ```{r}
 # Modèle de la Binomiale négative
-# La famille de négatif binomial est une autre extension de la famille de Poisson qui permet de prendre en compte la surdispersion des données. Elle est souvent utilisée pour modéliser des comptages d'événements qui présentent une forte variabilité. 
-
 modele_bin_neg <- glm.nb(formula_model, data = train_freq)
 summary(modele_bin_neg)
 ```
-Encore une fois, lon garde power 1, brand 2 et region_4
+Encore une fois, on garde power 1, brand 2 et region_4
 
 ```{r}
 modele_bin_neg <- glm.nb(
