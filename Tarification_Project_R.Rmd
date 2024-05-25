@@ -621,20 +621,18 @@ Nous procédons à un split stratifié pour avoir les mêmes proportions des mod
 
 ```{r}
 #Fixer l'aléa et partitionner les données pour le nombre de sinistres en 75%/25%
-
 set.seed(123)
 
 # Créer un index pour le split stratifié
 indexes <- createDataPartition(base_data_onehot[["ClaimNb"]], p=0.75, list=FALSE)
+
 # Créer les ensembles d'entraînement et de test
 train_freq <- base_data_onehot[indexes,]
 test_freq <- base_data_onehot[-indexes,]
 
-#Tester les GLM pour le nombre de sinistres
-#train_freq$Brand <- as.factor(train_freq$Brand)
-#train_freq$Gas <- as.factor(train_freq$Gas)
-#train_freq$Region <- as.factor(train_freq$Region)
-#train_freq$Power <- as.factor(train_freq$Power)
+train_cout <- base_data_onehot[indexes,]
+test_cout <- base_data[-indexes,]
+
 ```
 
 ```{r}
@@ -656,8 +654,6 @@ Nous voyons que nous avons des répartitions semblables entre la base test et la
 
 Passons à la modélisation.
 
-#### CAS SANS CONSTANTE / INTERCEPTION
-
 Pour éviter de réécrire toujours les mêmes variables, on les met dans une variable distincte. De plus, en raison de la multicolinéarité entre vos variables dummy quand on convertit des variables catégorielles en dummies, une des catégories de chaque variable doit être omise pour éviter la colinéarité parfaite (dummy variable trap)
 
 Nous avons décidé de retirer Power_3, Brand_3 ainsi que Region_4 qui sont les variables qui ont un nombre faible de police et un nombre de réclamation assez bas, ceci ne devrait donc pas affecter la significativité de notre modèle
@@ -667,7 +663,6 @@ formula_model <- ClaimNb ~ -1 + Exposure + CarAge + Gas + Density + DriverAge +
                   Power_1 + Power_2 + 
                   Brand_1 + Brand_2 +  
                   Region_1 + Region_2 + Region_3 
-
 ```
 
 L'intercept (ie constante) dans un modèle GLM représente la valeur attendue de la variable dépendante lorsque toutes les variables indépendantes sont égales à zéro. Dans notre cas, on souhaite comparer les effets de différents groupes de variables, on élimine donc la constante avec le -1.
@@ -736,6 +731,8 @@ glm_bin_neg <- glm.nb(
     Density +Brand_1 + Brand_2 + Brand_3,data = train_freq)
 summary(glm_bin_neg)
 ```
+========== Choix du meilleur modèle selon AIC ==========
+
 Déterminons maintenant le meilleur modèle au sens du critère AIC
 
 ```{r}
@@ -751,6 +748,8 @@ cat("Le modèle qui minimise l'AIC est le ", AIC_data$Modele[which.min(AIC_data$
 ```
 
 On retient ainsi le modele binomial négatif selon ce critère.
+
+========== Choix du meilleur modèle selon RMSE ==========
 
 Maintenant, essayons de trouver le meilleur modèle en nous appuyant sur les données de validation.
 Pour cela, nous allons utilier le Root Mean Square Error évaluer la précision d'un modèle de régression (racine carrée de la moyenne des carrés des écarts entre les valeurs prédites par le modèle et les valeurs observées dans l'ensemble de données de test)
@@ -779,3 +778,138 @@ cat("Le modèle qui minimise le RMSE est le ", RMSE_data$Modele[which.min(RMSE_d
 
 ```
 Donc avec le critère du RMSE, on garde le modèle de Poisson. On note également que les précisions entre le modèle de Poisson et quasi Poisson sont similaires (même RMSE). Cela signifie que les données ne présentent pas de surdispersion significative. Dans ce cas, la loi de quasi-Poisson se réduit à la loi de Poisson et les deux distributions sont équivalentes.
+
+### III.2.3 Modélisation du coût de sinistre
+
+Passons à la modélisation.
+
+```{r}
+formula_model <- ClaimAmount ~ -1 + Exposure + CarAge + Gas + Density + DriverAge +
+                  Power_1 + Power_2 + 
+                  Brand_1 + Brand_2 +  
+                  Region_1 + Region_2 + Region_3 
+
+#On filtre la base pour ne garder que les montants positifs car notre etude se concentre desormais sur les valeurs positives
+train_cout <- train_cout[train_cout$ClaimAmount >0,]
+test_cout <- test_cout[test_cout$ClaimAmount >0,]
+```
+
+========== Modele de Gamma ========== 
+
+```{r}
+#Modèle Initial pour gamma
+glm_gaussien_cout <- glm(formula_model,family = Gamma(link="log"), data = train_cout)
+summary(glm_gaussien_cout)
+```
+```{r}
+#Modèle après avoir retiré les variables non significatives pour gamma
+glm_gaussien_cout <- glm(ClaimNb ~ -1 + Gas + Region_1,family = Gamma(link="log"), data = train_cout)
+summary(glm_gaussien_cout)
+```
+
+
+========== Modele Gaussien ========== 
+
+```{r}
+#Modèle initial gaussien
+glm_gaussien_cout <- glm(formula_model,family = gaussian(link="identity"), data = train_cout)
+summary(glm_gaussien_cout)
+```
+on garde l'age du conducteur ainsi que le type d'essence mais vu le peu de significativité des variables, cet modèle ne semble pas intéressant
+```{r}
+#Modèle en retenant quelques variables significatives
+glm_gaussien_cout <- glm(ClaimNb ~ -1 + Gas + DriverAge,family = gaussian(link="identity"), data = train_cout)
+summary(glm_gaussien_cout)
+```
+========== Modele Poisson ========== 
+
+La famille de Poisson est utilisée pour modéliser des variables aléatoires discrètes qui prennent des valeurs entières positives. Elle est souvent utilisée pour modéliser des comptages d'évènements rares, tels que le nombre de sinistres.
+
+```{r}
+# Modele initial de la Poisson
+glm_poisson_cout <- glm(formula_model,family = poisson(link="log"), data = train_cout)
+summary(glm_poisson_cout)
+```
+A partir de ces informations, on voit qu'on garde toutes les valeurs
+
+========== Modele Poisson surdisperse  ========== 
+
+La famille de Poisson surdisperse est une extension de la famille de Poisson qui permet de prendre en compte la surdispersion des données. La surdispersion se produit lorsque la variance des données est supérieure à la moyenne, ce qui peut rendre le modèle de Poisson inadapté.
+
+```{r}
+# Modele initial Poisson surdispersée 
+glm_quasipoisson_cout <- glm(formula_model,family = quasipoisson(link="log"), data = train_cout)
+summary(glm_quasipoisson_cout)
+```
+Nous retirons les valeurs non significatives et gardons le type d'essence, l'age de la voiture et l'age du conducteur
+
+```{r}
+#Modele de poisson surdisperse apres avoir retire les variables non significatives
+glm_quasipoisson_cout <- glm(
+  ClaimNb ~ -1 + CarAge + Gas + DriverAge, family = quasipoisson(link = "log"),
+  data = train_cout)
+summary(glm_quasipoisson_cout)
+```
+========== Modele négatif binomial  ========== 
+
+La famille de négatif binomial est une autre extension de la famille de Poisson qui permet de prendre en compte la surdispersion des données. Elle est souvent utilisée pour modéliser des comptages d'événements qui présentent une forte variabilité. 
+
+```{r}
+# Modèle initial de la Binomiale négative
+glm_bin_neg_cout <- glm.nb(formula_model, data = train_cout)
+summary(glm_bin_neg_cout)
+```
+En analysant les variables significatives on garde : 
+
+```{r}
+# Modèle de la Binomiale négative après avoir retiré les variables non significatives
+glm_bin_neg_cout <- glm.nb(
+  ClaimNb ~ -1 + Exposure + Gas +Region_1 ,data = train_cout)
+summary(glm_bin_neg_cout)
+```
+========== Choix du meilleur modèle selon AIC ==========
+
+Déterminons maintenant le meilleur modèle au sens du critère AIC
+
+```{r}
+# Extraire les AIC des modèles, on retire le modele poisson surdisperse car etant un quasi modele, il n'a pas de vraisemblance, cependant par simplicité nous décidons de ne pas évaluer le quasi AIC
+
+# Créer un data frame avec les noms de modèle et leur AIC associé
+AIC_data <- data.frame(Modele = c("Modele Gamma","Modele Gaussien","Modele Poisson", "Modele Binomial Negatif"),
+                       AIC = c(AIC(glm_gaussien_cout), AIC(glm_gaussien_cout), AIC(glm_poisson_cout), AIC(glm_bin_neg_cout)))
+
+# Afficher le nom du modèle qui minimise l'AIC avec sa valeur
+cat("Le modèle qui minimise l'AIC est le ", AIC_data$Modele[which.min(AIC_data$AIC)], "avec une valeur d'AIC de", min(AIC_data$AIC))
+
+```
+
+On retient ainsi le modele binomial négatif selon ce critère.
+
+========== Choix du meilleur modèle selon RMSE ==========
+
+Maintenant, essayons de trouver le meilleur modèle en nous appuyant sur les données de validation.
+Pour cela, nous allons utilier le Root Mean Square Error évaluer la précision d'un modèle de régression (racine carrée de la moyenne des carrés des écarts entre les valeurs prédites par le modèle et les valeurs observées dans l'ensemble de données de test)
+
+
+```{r}
+x_test_nb = subset(test_freq, select=-c(PolicyID, ClaimNb, ClaimAmount))
+y_test_nb = test_freq$ClaimNb
+
+RMSE <- function(observed_data, predicted_data){
+  return(sqrt(mean((observed_data - predicted_data)^2)))
+}
+
+y_poisson_nb = predict(glm_poisson, newdata = x_test_nb, type = "response")
+y_quasipoisson_nb = predict(glm_quasipoisson, newdata = x_test_nb, type = "response")
+y_bin_neg_nb = predict(glm_bin_neg, newdata = x_test_nb, type = "response")
+
+# Créer un data frame avec les noms de modèle et leur AIC associé
+RMSE_data <- data.frame(Modele = c("Modele Poisson", "Modele Quasi Poisson", "Modele Binomial Negatif"), 
+                        RMSE = c(RMSE(y_test_nb, y_poisson_nb),
+                                 RMSE(y_test_nb, y_quasipoisson_nb),
+                                 RMSE(y_test_nb, y_bin_neg_nb)))
+
+# Afficher le nom du modèle qui minimise le RMSE avec sa valeur
+cat("Le modèle qui minimise le RMSE est le ", RMSE_data$Modele[which.min(RMSE_data$RMSE)], "avec une valeur de RMSE de", min(RMSE_data$RMSE))
+
+```
