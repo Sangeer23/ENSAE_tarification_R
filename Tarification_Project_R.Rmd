@@ -13,8 +13,8 @@ knitr::opts_chunk$set(echo = FALSE)
 # Installation des packages
 
 ```{r, eval=FALSE, echo=FALSE, results='hide'}
-packages <- c("future", "promises", "xts", "sp", "zoo", "Hmisc", "plyr", "dplyr", "tidyr", "corrplot","ggplot2", "lubridate", "car", "MASS", "glmnet", "randomForest",
-"caret", "data.table", "stringr", "skimr", "dunn.test", "DT", "shiny", "rlang", "tibble")
+packages <- c("xts", "sp", "zoo", "Hmisc", "plyr", "dplyr", "tidyr", "corrplot","ggplot2", "lubridate", "car", "MASS", "pscl", "glmnet",
+"caret", "data.table", "stringr", "skimr", "dunn.test", "DT", "rlang", "tibble")
 
 # Fonction pour installer les packages s'ils ne sont pas déjà installés
 install_if_missing <- function(package) {
@@ -200,17 +200,33 @@ sum(duplicated(freMTPLsev["PolicyID"]))
 length(unique(freMTPLsev$PolicyID))
 length(unique(freMTPLfreq$PolicyID))
 
+```
+```{r}
+mean_claim_by_policy <- freMTPLsev %>%
+  group_by(PolicyID) %>%
+  summarise(mean_ClaimAmount = mean(ClaimAmount, na.rm = TRUE))%>%
+    rename(ClaimAmount = mean_ClaimAmount)
+
+length(unique(freMTPLsev$PolicyID))
+length(unique(mean_claim_by_policy$PolicyID))
+dim(freMTPLsev)
+dim(mean_claim_by_policy)
+```
+
+```{r}
 # Type de la clé 
 freMTPLfreq$PolicyID <- as.character(freMTPLfreq$PolicyID)
-freMTPLsev$PolicyID  <- as.character(freMTPLsev$PolicyID)
+mean_claim_by_policy$PolicyID  <- as.character(mean_claim_by_policy$PolicyID)
 
 # Effectuer une jointure
-base_data <- left_join(freMTPLfreq, freMTPLsev, by = "PolicyID")
+base_data <- left_join(freMTPLfreq, mean_claim_by_policy, by = "PolicyID")
 dim(base_data)
 
 # Replace NA values with 0 for numerical calculations
 base_data$ClaimAmount[is.na(base_data$ClaimAmount)] <- 0
 ```
+
+
 ```{r}
 skim(base_data)
 ```
@@ -219,9 +235,8 @@ Commentaires :
 ### I.3.1 : Corrélation entre variables numériques
 
 ```{r}
-# Supposons que 'num_vars' et 'cat_vars' sont vos listes de noms de variables
-num_vars <- c("Exposure", "CarAge", "DriverAge", "Density", "ClaimAmount", "ClaimNb")  # Exemple de variables numériques
-cat_vars <- c("Power", "Brand", "Gas", "Region")  # Exemple de variables catégorielles
+num_vars <- c("Exposure", "CarAge", "DriverAge", "Density", "ClaimAmount", "ClaimNb")  
+cat_vars <- c("Power", "Brand", "Gas", "Region")  
 
 ```
 
@@ -659,7 +674,7 @@ Nous avons décidé de retirer Power_3, Brand_3 ainsi que Region_4 qui sont les 
 formula_model <- ClaimNb ~ -1 + Exposure + CarAge + Gas + Density + DriverAge +
                   Power_1 + Power_2 + 
                   Brand_1 + Brand_2 +  
-                  Region_1 + Region_2 + Region_3 
+                  Region_1 + Region_2 + Region_3
 ```
 
 L'intercept (ie constante) dans un modèle GLM représente la valeur attendue de la variable dépendante lorsque toutes les variables indépendantes sont égales à zéro. Dans notre cas, on souhaite comparer les effets de différents groupes de variables, on élimine donc la constante avec le -1.
@@ -676,6 +691,8 @@ Nous ne faisons pas le modèle Gaussien non plus car il ne nous semble pas perti
 ========== Modele Poisson ========== 
 
 La famille de Poisson est utilisée pour modéliser des variables aléatoires discrètes qui prennent des valeurs entières positives. Elle est souvent utilisée pour modéliser des comptages d'évènements rares, tels que le nombre de sinistres.
+
+========== Modele zero inflation de zero ============
 
 ```{r}
 # Modele initial de la Poisson
@@ -728,6 +745,23 @@ glm_bin_neg_nb <- glm.nb(
     Density +Brand_1 + Brand_2 + Brand_3,data = train)
 summary(glm_bin_neg_nb)
 ```
+
+```{r}
+zip_poisson <- zeroinfl(formula_model, data = train, na.action= na.omit, dist="poisson")
+summary(zip_poisson)
+```
+
+```{r}
+zip_negbin <- zeroinfl(formula_model, data = train, na.action= na.omit, dist="negbin")
+summary(zip_negbin)
+```
+
+```{r}
+zip <- zeroinfl(formula_model, data = train, na.action= na.omit)
+summary(zip)
+```
+
+
 ========== Choix du meilleur modèle selon AIC ==========
 
 Déterminons maintenant le meilleur modèle au sens du critère AIC pour le nombre de sinistres
@@ -736,8 +770,8 @@ Déterminons maintenant le meilleur modèle au sens du critère AIC pour le nomb
 # Extraire les AIC des modèles, on retire le modele poisson surdisperse car etant un quasi modele, il n'a pas de vraisemblance, cependant par simplicité nous décidons de ne pas évaluer le quasi AIC
 
 # Créer un data frame avec les noms de modèle et leur AIC associé
-AIC_data <- data.frame(Modele = c("Modele Poisson", "Modele Binomial Negatif"),
-                       AIC = c(AIC(glm_poisson_nb), AIC(glm_bin_neg_nb)))
+AIC_data <- data.frame(Modele = c("Modele Poisson", "Modele Binomial Negatif", "Modele zero inflation de zero Poisson", "Modele zero inflation Binomial Negatif"),
+                       AIC = c(AIC(glm_poisson_nb), AIC(glm_bin_neg_nb), AIC(zip_poisson), AIC(zip_negbin)))
 
 # Afficher le nom du modèle qui minimise l'AIC avec sa valeur
 cat("Le modèle pour le nombre de sinistre qui minimise l'AIC est le ", AIC_data$Modele[which.min(AIC_data$AIC)], "avec une valeur d'AIC de", min(AIC_data$AIC))
@@ -763,12 +797,18 @@ RMSE <- function(observed_data, predicted_data){
 y_poisson_nb = predict(glm_poisson_nb, newdata = x_test_nb, type = "response")
 y_quasipoisson_nb = predict(glm_quasipoisson_nb, newdata = x_test_nb, type = "response")
 y_bin_neg_nb = predict(glm_bin_neg_nb, newdata = x_test_nb, type = "response")
+y_zip_poisson = predict(zip_poisson, newdata = x_test_nb, type = "response")
+y_zip_negbin  = predict(zip_negbin, newdata = x_test_nb, type = "response")
 
 # Créer un data frame avec les noms de modèle et leur AIC associé
-RMSE_data <- data.frame(Modele = c("Modele Poisson", "Modele Quasi Poisson", "Modele Binomial Negatif"), 
+RMSE_data <- data.frame(Modele = c("Modele Poisson", "Modele Quasi Poisson", "Modele Binomial Negatif",
+                                   "Modele zero inflation de zero Poisson", "Modele zero inflation de zero Binomial Negatif"), 
                         RMSE = c(RMSE(y_test_nb, y_poisson_nb),
                                  RMSE(y_test_nb, y_quasipoisson_nb),
-                                 RMSE(y_test_nb, y_bin_neg_nb)))
+                                 RMSE(y_test_nb, y_bin_neg_nb),
+                                 RMSE(y_test_nb, y_zip_poisson),
+                                 RMSE(y_test_nb, y_zip_negbin)
+                                 ))
 
 # Afficher le nom du modèle qui minimise le RMSE avec sa valeur
 cat("Le modèle qui minimise le RMSE est le ", RMSE_data$Modele[which.min(RMSE_data$RMSE)], "avec une valeur de RMSE de", min(RMSE_data$RMSE))
@@ -787,8 +827,8 @@ formula_model <- ClaimAmount ~ -1 + Exposure + CarAge + Gas + Density + DriverAg
                   Region_1 + Region_2 + Region_3 
 
 #On filtre la base pour ne garder que les montants positifs car notre etude se concentre desormais sur les valeurs positives
-#train <- train[train$ClaimAmount >0,]
-#test <- test[test$ClaimAmount >0,]
+train_cout <- train[train$ClaimAmount > 0, ]
+test_cout <- test[test$ClaimAmount > 0, ]
 ```
 
 ========== Modele de Gamma ========== 
@@ -796,27 +836,27 @@ formula_model <- ClaimAmount ~ -1 + Exposure + CarAge + Gas + Density + DriverAg
 ```{r}
 #Modèle Initial pour gamma
 #On modifie la database pour utiliser la loi gamma car il faur des montant de sinistres >0 pour utiliser la loi Gamma
-glm_gamma_cout <- glm(formula_model,family = Gamma(link="log"), data = train[train$ClaimAmount >0,])
+glm_gamma_cout <- glm(formula_model,family = Gamma(link="log"), data = train_cout)
 summary(glm_gamma_cout)
 ```
 ```{r}
 #Modèle après avoir retiré les variables non significatives pour gamma
-glm_gamma_cout <- glm(ClaimNb ~ -1 + Gas + Region_1,family = Gamma(link="log"), data = train[train$ClaimAmount >0,])
+glm_gamma_cout <- glm(ClaimNb ~ -1 + Gas,family = Gamma(link="log"), data = train_cout)
 summary(glm_gamma_cout)
 ```
-
+Nous avons un AIC négatif et peu de variables réellement significatives, nous rejetons ce modèle.
 
 ========== Modele Gaussien ========== 
 
 ```{r}
 #Modèle initial gaussien
-glm_gaussien_cout <- glm(formula_model,family = gaussian(link="identity"), data = train)
+glm_gaussien_cout <- glm(formula_model,family = gaussian(link="identity"), data = train_cout)
 summary(glm_gaussien_cout)
 ```
-on garde l'age du conducteur ainsi que le type d'essence mais vu le peu de significativité des variables, cet modèle ne semble pas intéressant
+on garde l'age du conducteur ainsi que le type d'essence mais vu le peu de significativité des variables, ce modèle ne semble pas intéressant
 ```{r}
 #Modèle en retenant quelques variables significatives
-glm_gaussien_cout <- glm(ClaimNb ~ -1 + Gas + DriverAge,family = gaussian(link="identity"), data = train)
+glm_gaussien_cout <- glm(ClaimNb ~ -1 +Gas,family = gaussian(link="identity"), data = train_cout)
 summary(glm_gaussien_cout)
 ```
 Nous observons un AIC négatif en plus de notre observation initiales que les vairables étaient peu significatives, nous ne retenons pas ce modèle par la suite.
@@ -831,7 +871,7 @@ La famille de négatif binomial est une autre extension de la famille de Poisson
 
 ```{r}
 # Modèle initial de la Binomiale négative
-glm_bin_neg_cout <- glm.nb(formula_model, data = train)
+glm_bin_neg_cout <- glm.nb(formula_model, data = train_cout)
 summary(glm_bin_neg_cout)
 ```
 En analysant les variables significatives on garde : 
@@ -839,31 +879,21 @@ En analysant les variables significatives on garde :
 ```{r}
 # Modèle de la Binomiale négative après avoir retiré les variables non significatives
 glm_bin_neg_cout <- glm.nb(
-  ClaimNb ~ -1 + Exposure + Gas +Region_1 + DriverAge +Region_1,data = train)
+  ClaimAmount ~ -1 + Exposure + CarAge + Gas + Density + DriverAge +
+                  Power_1 +  
+                  Brand_1 + Brand_2 +  
+                  Region_1,data = train_cout)
 summary(glm_bin_neg_cout)
 ```
 ========== Choix du meilleur modèle selon AIC ==========
 
-Déterminons maintenant le meilleur modèle au sens du critère AIC
-
-```{r}
-# Extraire les AIC des modèles, on retire le modele poisson surdisperse car etant un quasi modele, il n'a pas de vraisemblance, cependant par simplicité nous décidons de ne pas évaluer le quasi AIC
-
-# Créer un data frame avec les noms de modèle et leur AIC associé
-AIC_data <- data.frame(Modele = c("Modele Gamma", "Modele Binomial Negatif"),
-                       AIC = c(AIC(glm_gamma_cout), AIC(glm_bin_neg_cout)))
-
-# Afficher le nom du modèle qui minimise l'AIC avec sa valeur
-cat("Le modèle qui minimise l'AIC est le ", AIC_data$Modele[which.min(AIC_data$AIC)], "avec une valeur d'AIC de", min(AIC_data$AIC))
-
-```
-
-On retient ainsi le modele binomial négatif selon ce critère.
+Déterminons maintenant le meilleur modèle au sens du critère AIC.
+Les modèles gaussiens et gamma ayant peu de variables significatives comparées à la loi binomiales négatives, nous retenons seulement la binomiale négative
 
 ========== Choix du meilleur modèle selon RMSE ==========
 
 Maintenant, essayons de trouver le meilleur modèle en nous appuyant sur les données de validation.
-Pour cela, nous allons utilier le Root Mean Square Error évaluer la précision d'un modèle de régression (racine carrée de la moyenne des carrés des écarts entre les valeurs prédites par le modèle et les valeurs observées dans l'ensemble de données de test)
+Pour cela, nous allons utilier le Root Mean Square Error évaluer la précision d'un modèle de régression (racine carrée de la moyenne des carrés des écarts entre les valeurs prédites par le modèle et les valeurs observées dans l'ensemble de données de test).
 
 
 ```{r}
@@ -873,20 +903,18 @@ y_test = test$ClaimAmount
 RMSE <- function(observed_data, predicted_data){
   return(sqrt(mean((observed_data - predicted_data)^2)))
 }
-
-y_gaussien_nb = predict(glm_gaussien_cout, newdata = x_test_nb, type = "response")
-y_gamma_nb = predict(glm_gamma_cout, newdata = x_test_nb, type = "response")
-y_poisson_nb = predict(glm_poisson, newdata = x_test_nb, type = "response")
-y_quasipoisson_nb = predict(glm_quasipoisson, newdata = x_test_nb, type = "response")
-y_bin_neg_nb = predict(glm_bin_neg, newdata = x_test_nb, type = "response")
+y_gaussien_cout = predict(glm_gaussien_cout, newdata = x_test_nb, type = "response")
+y_gaussien_cout = predict(glm_gaussien_cout, newdata = x_test_nb, type = "response")
+y_bin_neg_cout = predict(glm_bin_neg_cout, newdata = x_test_nb, type = "response")
 
 # Créer un data frame avec les noms de modèle et leur AIC associé
-RMSE_data <- data.frame(Modele = c( "Modele Gamma", "Modele Binomial Negatif"), 
-                        RMSE = c(RMSE(y_test_nb, y_gamma_nb),
-                                 RMSE(y_test_nb, y_bin_neg_nb)))
+RMSE_data_cout <- data.frame(Modele = c("Modele Gaussien", "Modele Gamma", "Modele Binomial Negatif"), 
+                          RMSE = c(RMSE(y_test_nb, y_gaussien_cout),
+                                  RMSE(y_test_nb, y_gamma_nb),
+                                  RMSE(y_test_nb, y_bin_neg_nb)))
 
 # Afficher le nom du modèle qui minimise le RMSE avec sa valeur
-cat("Le modèle qui minimise le RMSE est le ", RMSE_data$Modele[which.min(RMSE_data$RMSE)], "avec une valeur de RMSE de", min(RMSE_data$RMSE))
+cat("Le modèle qui minimise le RMSE est le ", RMSE_data_cout$Modele[which.min(RMSE_data_cout$RMSE)], "avec une valeur de RMSE de", min(RMSE_data_cout$RMSE))
 
 ```
 
@@ -896,26 +924,241 @@ Nous allons nous appuyer sur un modèle de type Fréquence x Cout comme nous l'a
 
 
 ```{r}
-#Montant des sinistres observés : 
-mt_sinistres = sum(df$ClaimAmount)
+
+mt_sinistres = sum(base_data_onehot$ClaimAmount)
 
 ##Modele avec critere AIC
-freq_aic<- predict(glm_bin_neg_nb, newdata = base_data_onehot, type = "response")
+freq_aic<- predict(zip_negbin, newdata = base_data_onehot, type = "response")
 cout_aic <- predict(glm_bin_neg_cout, newdata = base_data_onehot, type = "response")
 resultat_aic <- sum(freq_aic*cout_aic)
+ecart_aic <- resultat_aic - mt_sinistres
 
 ##Modele avec critere RMSE
-freq_RMSE <- predict(glm_poisson_nb, newdata = base_data_onehot, type = "response")
+freq_RMSE <- predict(zip_poisson, newdata = base_data_onehot, type = "response")
 cout_RMSE <- predict(glm_bin_neg_cout, newdata = base_data_onehot, type = "response")
-resultat_RMSE <-sum(freq_rmse*cout_rmse)
+resultat_RMSE <-sum(freq_RMSE*cout_RMSE)
+ecart_RMSE <- resultat_RMSE - mt_sinistres
 
 # Créer un data frame avec les noms de modèle et leur prix associé
-tarif_data <- data.frame(Modele = c( "Modele AIC", "Modele RMSE"), 
-                        tarif = c(resultat_aic,resultat_RMSE))
+tarif_data <- data.frame(Modele = c( "Critère AIC", "Critère RMSE"), 
+                        ecart = c(ecart_aic,ecart_RMSE),
+                        tarif= c(resultat_aic,resultat_RMSE))
 
 # Afficher le nom du modèle qui minimise le RMSE avec sa valeur
-cat("Le tarif choisi par mesure de prudence est le", tarif_data$Modele[which.max(tarif_data$tarif)], "avec tarif de", max(tarif_data$tarif))
-
+cat("Le tarif choisi est celui qui minimise l'écart avec les données observées", tarif_data$Modele[which.min(tarif_data$ecart)], "avec un écart de", paste0(round(tarif_data$ecart[which.min(tarif_data$ecart)]/mt_sinistres*100, 2), " %"), "et un tarif de", format(tarif_data$tarif[which.min(tarif_data$ecart)], big.mark = " ", scientific = FALSE))
 
 ```
+
+=============================================== Test de Lasso sur coût sinistre =====================================================
+
+```{r}
+# Suppression des NA
+base_data <- na.omit(base_data)
+
+# Séparation des données en échantillons d'apprentissage et de test
+set.seed(123)
+indexes <- sample(1:nrow(base_data), size = 0.75 * nrow(base_data))
+train_cout <- base_data[indexes, ]
+test_cout <- base_data[-indexes, ]
+
+# Encodage des variables catégorielles en variables binaires pour l'échantillon d'apprentissage
+formula_model <- ClaimAmount ~ -1 + Exposure + CarAge + Gas + Density + DriverAge +
+  Power + 
+  Brand +  
+  Region 
+
+train_matrix <- model.matrix(formula_model, data = train_cout)
+X_train <- as.matrix(train_matrix)
+y_train <- train_cout$ClaimAmount
+
+# Encodage des variables catégorielles en variables binaires pour l'échantillon de test
+test_matrix <- model.matrix(formula_model, data = test_cout)
+X_test <- as.matrix(test_matrix)
+y_test <- test_cout$ClaimAmount
+
+# Vérifier les dimensions des matrices et vecteurs
+cat("Dimensions de X_train:", dim(X_train), "\n")
+cat("Dimensions de y_train:", length(y_train), "\n")
+cat("Dimensions de X_test:", dim(X_test), "\n")
+cat("Dimensions de y_test:", length(y_test), "\n")
+
+```
+
+
+Gaussien
+```{r}
+# Ajustement du modèle Lasso avec la famille Gaussian
+set.seed(123)
+lasso_gaussian <- cv.glmnet(X_train, y_train, alpha = 1, family = "gaussian")
+
+# Prédictions et calcul du RMSE sur l'échantillon de test
+pred_gaussian <- predict(lasso_gaussian, s = "lambda.min", newx = X_test)
+rmse_gaussian <- sqrt(mean((y_test - pred_gaussian)^2))
+print(paste("RMSE pour la famille Gaussian :", rmse_gaussian))
+```
+
+Poisson
+```{r}
+# Ajustement du modèle Lasso (Poisson)
+set.seed(123)
+lasso_poisson <- cv.glmnet(X_train, y_train, alpha = 1, family = "poisson")
+
+# Prédictions et calcul du RMSE sur l'échantillon de test
+pred_poisson <- predict(lasso_poisson, s = "lambda.min", newx = X_test)
+rmse_poisson <- sqrt(mean((y_test - pred_poisson)^2))
+print(paste("RMSE pour la famille Poisson :", rmse_poisson))
+```
+
+Conclusion quant à la pertinence du modèle
+Comparons les RMSE pour déterminer la meilleure famille de distribution.
+```{r}
+# Comparaison des RMSE
+rmse_values <- c(Gaussian = rmse_gaussian, Poisson = rmse_poisson)
+best_family <- names(which.min(rmse_values))
+
+print(paste("La famille de distribution qui minimise le RMSE est :", best_family))
+print(paste("Le RMSE pour cette famille est :", min(rmse_values)))
+```
+
+
+======================================================= Fin du test =================================================================
+
+
+# V. Régression Lasso
+```{r}
+# Suppression des NA
+base_data_lasso <- na.omit(base_data)
+
+# Séparation des données en échantillons d'apprentissage et de test
+set.seed(123)
+indexes <- sample(1:nrow(base_data_lasso), size = 0.75 * nrow(base_data_lasso))
+train <- base_data_lasso[indexes, ]
+test <- base_data_lasso[-indexes, ]
+```
+
+## V.1. Nombre de sinistres
+
+```{r}
+# Encodage des variables catégorielles en variables binaires pour l'échantillon d'apprentissage
+formula_model_freq <- ClaimNb ~ -1 + Exposure + CarAge + Gas + Density + DriverAge + Power + Brand +  Region 
+
+train_matrix_freq <- model.matrix(formula_model_freq, data = train)
+X_train_freq <- as.matrix(train_matrix_freq)
+y_train_freq <- train$ClaimNb
+
+# Encodage des variables catégorielles en variables binaires pour l'échantillon de test
+test_matrix_freq <- model.matrix(formula_model_freq, data = test)
+X_test_freq <- as.matrix(test_matrix_freq)
+y_test_freq <- test$ClaimNb
+
+# Vérifier les dimensions des matrices et vecteurs
+cat("Dimensions de X_train_freq:", dim(X_train_freq), "\n")
+cat("Dimensions de y_train_freq:", length(y_train_freq), "\n")
+cat("Dimensions de X_test_freq:", dim(X_test_freq), "\n")
+cat("Dimensions de y_test_freq:", length(y_test_freq), "\n")
+
+```
+Gaussien
+```{r}
+# Ajustement du modèle Lasso avec la famille Gaussian
+set.seed(123)
+lasso_gaussian_freq <- cv.glmnet(X_train_freq, y_train_freq, alpha = 1, family = "gaussian")
+
+# Prédictions et calcul du RMSE sur l'échantillon de test
+pred_gaussian_freq <- predict(lasso_gaussian_freq, s = "lambda.min", newx = X_test_freq)
+rmse_gaussian_freq <- sqrt(mean((y_test_freq - pred_gaussian_freq)^2))
+print(paste("RMSE pour la famille Gaussian :", rmse_gaussian_freq))
+```
+
+Poisson
+```{r}
+# Ajustement du modèle Lasso (Poisson)
+set.seed(123)
+lasso_poisson_freq <- cv.glmnet(X_train_freq, y_train_freq, alpha = 1, family = "poisson")
+
+# Prédictions et calcul du RMSE sur l'échantillon de test
+pred_poisson_freq <- predict(lasso_poisson_freq, s = "lambda.min", newx = X_test)
+rmse_poisson_freq <- sqrt(mean((y_test_freq - pred_poisson_freq)^2))
+print(paste("RMSE pour la famille Poisson :", rmse_poisson_freq))
+```
+
+Conclusion quant à la pertinence du modèle
+Comparons les RMSE pour déterminer la meilleure famille de distribution.
+```{r}
+# Comparaison des RMSE
+rmse_values_freq <- c(Gaussian = rmse_gaussian_freq, Poisson = rmse_poisson)
+best_family_freq <- names(which.min(rmse_values_freq))
+
+print(paste("La famille de distribution qui minimise le RMSE est :", best_family_freq))
+print(paste("Le RMSE pour cette famille est :", min(rmse_values_freq)))
+```
+
+
+## V.2. Couts des sinistres
+```{r}
+# Encodage des variables catégorielles en variables binaires pour l'échantillon d'apprentissage
+formula_model <- ClaimAmount ~ -1 + Exposure + CarAge + Gas + Density + DriverAge + Power + Brand +  Region 
+
+train_matrix_cout <- model.matrix(formula_model, data = train)
+X_train_cout <- as.matrix(train_matrix_cout)
+y_train_cout <- train$ClaimAmount
+
+# Encodage des variables catégorielles en variables binaires pour l'échantillon de test
+test_matrix_cout <- model.matrix(formula_model, data = test)
+X_test_cout <- as.matrix(test_matrix_cout)
+y_test_cout <- test$ClaimAmount
+
+# Vérifier les dimensions des matrices et vecteurs
+cat("Dimensions de X_train_cout:", dim(X_train_cout), "\n")
+cat("Dimensions de y_train_cout:", length(y_train_cout), "\n")
+cat("Dimensions de X_test_cout:", dim(X_test_cout), "\n")
+cat("Dimensions de y_test_cout:", length(y_test_cout), "\n")
+
+```
+
+Gaussien
+```{r}
+# Ajustement du modèle Lasso avec la famille Gaussian
+set.seed(123)
+lasso_gaussian_cout <- cv.glmnet(X_train_cout, y_train_cout, alpha = 1, family = "gaussian")
+
+# Prédictions et calcul du RMSE sur l'échantillon de test
+pred_gaussian_cout <- predict(lasso_gaussian_cout, s = "lambda.min", newx = X_test_cout)
+rmse_gaussian_cout <- sqrt(mean((y_test_cout - pred_gaussian_cout)^2))
+print(paste("RMSE pour la famille Gaussian :", rmse_gaussian_cout))
+```
+
+Poisson
+```{r}
+# Ajustement du modèle Lasso (Poisson)
+set.seed(123)
+lasso_poisson_cout <- cv.glmnet(X_train_cout, y_train_cout, alpha = 1, family = "poisson")
+
+# Prédictions et calcul du RMSE sur l'échantillon de test
+pred_poisson_cout <- predict(lasso_poisson_cout, s = "lambda.min", newx = X_test_cout)
+rmse_poisson_cout <- sqrt(mean((y_test_cout - pred_poisson_cout)^2))
+print(paste("RMSE pour la famille Poisson :", rmse_poisson_cout))
+```
+
+Conclusion quant à la pertinence du modèle
+Comparons les RMSE pour déterminer la meilleure famille de distribution.
+```{r}
+# Comparaison des RMSE
+rmse_values_cout <- c(Gaussian = rmse_gaussian_cout, Poisson = rmse_poisson_cout)
+best_family_cout <- names(which.min(rmse_values_cout))
+
+print(paste("La famille de distribution qui minimise le RMSE est :", best_family_cout))
+print(paste("Le RMSE pour cette famille est :", min(rmse_values_cout)))
+```
+
+
+
+
+
+
+
+
+
+
+
 
