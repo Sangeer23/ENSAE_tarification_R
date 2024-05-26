@@ -893,30 +893,9 @@ Les modèles gaussiens et gamma ayant peu de variables significatives comparées
 ========== Choix du meilleur modèle selon RMSE ==========
 
 Maintenant, essayons de trouver le meilleur modèle en nous appuyant sur les données de validation.
-Pour cela, nous allons utilier le Root Mean Square Error évaluer la précision d'un modèle de régression (racine carrée de la moyenne des carrés des écarts entre les valeurs prédites par le modèle et les valeurs observées dans l'ensemble de données de test).
 
+Comme vu précédemment, nous allons retenir seulement la binomiale négative
 
-```{r}
-x_test = subset(test, select=-c(PolicyID, ClaimNb, ClaimAmount))
-y_test = test$ClaimAmount
-
-RMSE <- function(observed_data, predicted_data){
-  return(sqrt(mean((observed_data - predicted_data)^2)))
-}
-y_gaussien_cout = predict(glm_gaussien_cout, newdata = x_test_nb, type = "response")
-y_gaussien_cout = predict(glm_gaussien_cout, newdata = x_test_nb, type = "response")
-y_bin_neg_cout = predict(glm_bin_neg_cout, newdata = x_test_nb, type = "response")
-
-# Créer un data frame avec les noms de modèle et leur AIC associé
-RMSE_data_cout <- data.frame(Modele = c("Modele Gaussien", "Modele Gamma", "Modele Binomial Negatif"), 
-                          RMSE = c(RMSE(y_test_nb, y_gaussien_cout),
-                                  RMSE(y_test_nb, y_gamma_nb),
-                                  RMSE(y_test_nb, y_bin_neg_nb)))
-
-# Afficher le nom du modèle qui minimise le RMSE avec sa valeur
-cat("Le modèle qui minimise le RMSE est le ", RMSE_data_cout$Modele[which.min(RMSE_data_cout$RMSE)], "avec une valeur de RMSE de", min(RMSE_data_cout$RMSE))
-
-```
 
 ### IV.1.1 Tarification 
 
@@ -1150,15 +1129,3 @@ best_family_cout <- names(which.min(rmse_values_cout))
 print(paste("La famille de distribution qui minimise le RMSE est :", best_family_cout))
 print(paste("Le RMSE pour cette famille est :", min(rmse_values_cout)))
 ```
-
-
-
-
-
-
-
-
-
-
-
-
